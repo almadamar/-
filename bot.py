@@ -1,134 +1,177 @@
 import os
 import logging
-import asyncio
 import datetime
-import random
+import asyncio
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import yt_dlp
 
-# --- [ الإعدادات ] ---
+# ---------------- إعدادات ----------------
 TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
 OWNER_ID = 162459553
+DEV_USERNAME = "@AN_AZ22"
 CHANNEL_ID = -1003773995399
 CHANNEL_LINK = "https://t.me/+nBVM5qNb2uphMzUy"
-DOWNLOAD_DIR = 'downloads'
 
-# تهيئة المجلدات واللوق
-if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
+DOWNLOAD_DIR = 'downloads'
+MAX_FILE_SIZE = 50 * 1024 * 1024  # حد تليجرام للملفات
+COOLDOWN_SECONDS = 5 
+
 logging.basicConfig(level=logging.INFO)
 
-# قاعدة بيانات مؤقتة
-active_users = set()
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
 
-# --- [ ميزات الحماية واللغة ] ---
-def get_user_lang(update: Update):
-    return 'ar' if update.effective_user.language_code == 'ar' else 'en'
+user_cooldown = {}
 
-async def check_subscription(bot, user_id):
+# ---------------- دوال مساعدة ----------------
+async def is_subscribed(bot, user_id):
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
         return member.status in ['member', 'administrator', 'creator']
-    except: return False
+    except Exception:
+        return False
 
-# --- [ محرك التحميل الاحترافي ] ---
-async def download_engine(query, context, url, mode):
-    lang = get_user_lang(query)
-    msg_wait = "⏳ جاري التحميل... يرجى الانتظار" if lang == 'ar' else "⏳ Downloading... Please wait"
-    msg_status = await query.edit_message_text(msg_wait)
-    
-    # إعدادات مستوحاة من VAFBoT لتجاوز القيود
-    ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
-        'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
-        'merge_output_format': 'mp4',
-        'postprocessor_args': ['-vcodec', 'libx264', '-acodec', 'aac'], # ترميز عالمي لعدم تجميد الفيديو
-        'quiet': True,
-        'no_warnings': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    }
+def check_cooldown(user_id):
+    now = datetime.datetime.now()
+    if user_id in user_cooldown:
+        diff = (now - user_cooldown[user_id]).total_seconds()
+        if diff < COOLDOWN_SECONDS:
+            return False, int(COOLDOWN_SECONDS - diff)
+    user_cooldown[user_id] = now
+    return True, 0
 
-    if mode == 'aud':
-        ydl_opts.update({'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]})
-
-    try:
-        def run_ytdlp():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info)
-
-        file_path = await asyncio.wait_for(asyncio.to_thread(run_ytdlp), timeout=180)
-        
-        # التأكد من الصيغة النهائية
-        final_file = file_path if mode == 'vid' else os.path.splitext(file_path)[0] + '.mp3'
-        
-        caption = "✅ تم التحميل بواسطة البوت الخاص بك" if lang == 'ar' else "✅ Downloaded by your bot"
-        
-        with open(final_file, 'rb') as f:
-            if mode == 'vid':
-                await query.message.reply_video(video=f, caption=caption, supports_streaming=True)
-            else:
-                await query.message.reply_audio(audio=f, caption=caption)
-
-        if os.path.exists(final_file): os.remove(final_file)
-        await msg_status.delete()
-    except Exception as e:
-        error_msg = "❌ فشل التحميل. الرابط قد يكون خاصاً." if lang == 'ar' else "❌ Download failed. Private link?"
-        await msg_status.edit_text(error_msg)
-
-# --- [ معالجة الرسائل ] ---
-async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ---------------- الأوامر ----------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    url = update.message.text
-    lang = get_user_lang(update)
-    active_users.add(user_id)
+    if await is_subscribed(context.bot, user_id):
+        await update.message.reply_text(f"🚀 أرسل رابط الفيديو للتحميل بصيغة MP4 المتوافقة.\nالمطور: {DEV_USERNAME}")
+    else:
+        keyboard = [
+            [InlineKeyboardButton("📢 اشترك في القناة", url=CHANNEL_LINK)],
+            [InlineKeyboardButton("✅ تم الاشتراك، ابدأ الآن", callback_data="check_sub")]
+        ]
+        await update.message.reply_text("⚠️ يجب الاشتراك في القناة أولاً لاستخدام البوت!", 
+                                      reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user, url = update.effective_user, update.message.text
     if not url.startswith("http"): return
 
-    # فحص الاشتراك
-    if not await check_subscription(context.bot, user_id):
-        btn = [[InlineKeyboardButton("📢 Channel / القناة", url=CHANNEL_LINK)],
-               [InlineKeyboardButton("✅ تم الاشتراك / Joined", callback_data="check_sub")]]
-        return await update.message.reply_text("⚠️ اشترك أولاً لتتمكن من التحميل:", reply_markup=InlineKeyboardMarkup(btn))
+    if not await is_subscribed(context.bot, user.id):
+        await start(update, context)
+        return
 
-    link_id = str(random.randint(1000, 9999))
+    allowed, wait_time = check_cooldown(user.id)
+    if not allowed:
+        await update.message.reply_text(f"⏳ انتظر {wait_time} ثواني.")
+        return
+
+    # تخزين الرابط بـ ID قصير لتجنب خطأ Button_data_invalid
+    link_id = str(datetime.datetime.now().timestamp()).replace(".", "")
     context.user_data[link_id] = url
-    
-    # واجهة اختيار الصيغة (مثل Allsavers)
-    kb = [[InlineKeyboardButton("🎬 Video MP4 (720p)", callback_data=f'vid|{link_id}')],
-          [InlineKeyboardButton("🎵 Audio MP3", callback_data=f'aud|{link_id}')]]
-    
-    txt = "⚙️ اختر الصيغة المطلوبة:" if lang == 'ar' else "⚙️ Select format:"
-    await update.message.reply_text(txt, reply_markup=InlineKeyboardMarkup(kb))
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = get_user_lang(update)
-    msg = "🚀 أرسل أي رابط (تيك توك، يوتيوب، إنستغرام، Pinterest) وسأحمله لك!" if lang == 'ar' else "🚀 Send any link to download!"
-    await update.message.reply_text(msg)
+    keys = [
+        [InlineKeyboardButton("🎬 فيديو MP4 (متوافق)", callback_data=f'vid_high|{link_id}')],
+        [InlineKeyboardButton("🎵 ملف صوتي MP3", callback_data=f'aud|{link_id}')]
+    ]
+    await update.message.reply_text("📥 اختر ما تريد تحميله:", reply_markup=InlineKeyboardMarkup(keys))
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == OWNER_ID:
-        await update.message.reply_text(f"📊 عدد المستخدمين: {len(active_users)}")
+# ---------------- منطق التحميل والترميم ----------------
+async def download_logic(query, context, url, mode):
+    await query.edit_message_text("⏳ جاري التحميل والمعالجة بصيغة متوافقة... يرجى الانتظار.")
+    loop = asyncio.get_running_loop()
 
-async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def ytdlp_download():
+        # إعدادات تجبر المنصات على إعطاء كوديك H.264 (avc1) لضمان التشغيل
+        ydl_opts = {
+            'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        if mode.startswith('vid'):
+            ydl_opts.update({
+                # نطلب أفضل فيديو mp4 (ترميز h264) وأفضل صوت m4a
+                'format': 'bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'merge_output_format': 'mp4',
+            })
+        else:
+            ydl_opts.update({
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+            })
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            
+            # تصحيح الاسم النهائي
+            if mode.startswith('vid'):
+                base = os.path.splitext(filename)[0]
+                final_name = base + '.mp4'
+                if os.path.exists(filename) and filename != final_name:
+                    if os.path.exists(final_name): os.remove(final_name)
+                    os.rename(filename, final_name)
+                return final_name
+            else:
+                return os.path.splitext(filename)[0] + '.mp3'
+
+    try:
+        file_path = await loop.run_in_executor(None, ytdlp_download)
+
+        if os.path.getsize(file_path) > MAX_FILE_SIZE:
+            await query.message.reply_text("❌ الملف حجمه أكبر من 50MB (حدود تليجرام).")
+            os.remove(file_path)
+            return
+
+        with open(file_path, 'rb') as f:
+            if mode.startswith('vid'):
+                # supports_streaming تسمح بتشغيل الفيديو أثناء التحميل
+                await query.message.reply_video(video=f, caption=f"✅ تم التحميل بنجاح\n👤 بواسطة: {DEV_USERNAME}", supports_streaming=True)
+            else:
+                await query.message.reply_audio(audio=f, caption=f"🎵 بواسطة: {DEV_USERNAME}")
+
+        os.remove(file_path)
+        await query.delete_message()
+
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        await query.message.reply_text("❌ حدث خطأ! الرابط قد يكون غير مدعوم أو محمي.")
+
+# ---------------- الأزرار ----------------
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data.split('|')
     
-    if data[0] == "check_sub":
-        if await check_subscription(context.bot, query.from_user.id):
-            await query.edit_message_text("✅ تم التفعيل! أرسل الرابط الآن.")
-    elif len(data) == 2:
-        url = context.user_data.get(data[1])
-        if url: await download_engine(query, context, url, data[0])
+    if query.data == "check_sub":
+        if await is_subscribed(context.bot, query.from_user.id):
+            await query.edit_message_text("✅ شكراً لاشتراكك! أرسل الرابط الآن.")
+        else:
+            await query.answer("⚠️ لم تشترك بعد في القناة!", show_alert=True)
+        return
 
-# --- [ التشغيل ] ---
+    try:
+        mode, link_id = query.data.split('|')
+        url = context.user_data.get(link_id)
+        if not url:
+            await query.edit_message_text("❌ انتهت الجلسة، أرسل الرابط مرة أخرى.")
+            return
+        await download_logic(query, context, url, mode)
+    except:
+        pass
+
+# ---------------- التشغيل ----------------
 if __name__ == '__main__':
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('stats', stats))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_msg))
-    app.add_handler(CallbackQueryHandler(callback_query))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    app.add_handler(CallbackQueryHandler(callback_handler))
     
-    print("--- البوت العملاق قيد التشغيل ---")
+    print("--- BOT STARTED: MP4 COMPATIBILITY MODE ---")
     app.run_polling()
