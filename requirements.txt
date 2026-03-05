@@ -1,6 +1,5 @@
 python-telegram-bot
 yt-dlp
-python-telegram-bot
 moviepy
 requests
 google-genai
