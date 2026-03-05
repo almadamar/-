@@ -7,40 +7,37 @@ BROADCAST_STATE = 1
 
 async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text("📢 أرسل رسالة الإذاعة الآن (نص أو وسائط):")
+    await update.message.reply_text("📢 أرسل الرسالة التي تريد إذاعتها (نص/ميديا):")
     return BROADCAST_STATE
 
 async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import bot # الوصول المباشر لبيانات bot.py
+    import bot # استيراد حي لجلب قائمة اليوزرات الحالية
     users = bot.active_users
     
     if not users:
-        await update.message.reply_text("❌ القائمة فارغة! اضغط /start أولاً.")
+        await update.message.reply_text("❌ القائمة فارغة حالياً.")
         return ConversationHandler.END
 
-    status = await update.message.reply_text(f"⏳ جاري الإرسال إلى {len(users)} مستخدم...")
-    success, fail = 0, 0
+    m = await update.message.reply_text(f"⏳ جاري الإرسال لـ {len(users)} مستخدم...")
+    s, f = 0, 0
     
-    for user_id in users:
+    for uid in users:
         try:
-            await context.bot.copy_message(
-                chat_id=user_id, 
-                from_chat_id=update.message.chat_id, 
-                message_id=update.message.message_id
-            )
-            success += 1
+            await context.bot.copy_message(chat_id=uid, from_chat_id=update.message.chat_id, message_id=update.message.message_id)
+            s += 1
             await asyncio.sleep(0.05)
-        except:
-            fail += 1
+        except: f += 1
             
-    await status.edit_text(f"✅ اكتملت الإذاعة:\n👤 نجاح: {success}\n❌ فشل: {fail}")
+    await m.edit_text(f"✅ اكتملت الإذاعة:\n👤 نجاح: {s}\n❌ فشل: {f}")
     return ConversationHandler.END
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import bot
+    import bot # استيراد حي للقائمة
     if update.effective_user.id != OWNER_ID: return
+    
+    # حساب المستخدمين المسجلين في الجلسة الحالية
     count = len(bot.active_users)
-    await update.message.reply_text(f"📊 إحصائيات البوت:\n👥 عدد المستخدمين النشطين: {count}")
+    await update.message.reply_text(f"📊 **إحصائيات البوت الحالية:**\n👥 عدد المستخدمين النشطين: {count}")
 
 def setup(app):
     handler = ConversationHandler(
@@ -50,4 +47,3 @@ def setup(app):
     )
     app.add_handler(handler)
     app.add_handler(CommandHandler("stats", stats_command))
-    print("📢 [plugin_extras] تم تفعيل الإذاعة والإحصائيات.")
