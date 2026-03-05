@@ -1,18 +1,3 @@
-# في ملف plugin_extras.py
-import bot  # استيراد الملف الأساسي للوصول للقائمة
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
-    
-    # الوصول للقائمة الحية من bot.py
-    current_users = bot.active_users
-    await update.message.reply_text(f"📊 عدد المستخدمين المسجلين حالياً: {len(current_users)}")
-
-async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # استخدام نفس القائمة للإذاعة
-    users_to_message = bot.active_users
-    # ... كود الإرسال ...
-# plugin_extras.py
 import asyncio
 from telegram import Update
 from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -26,11 +11,11 @@ async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROADCAST_STATE
 
 async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import bot # استيراد الملف الأساسي
+    import bot # الوصول المباشر لبيانات bot.py
     users = bot.active_users
     
     if not users:
-        await update.message.reply_text("❌ القائمة فارغة! يجب أن يضغط المستخدمون على /start أولاً.")
+        await update.message.reply_text("❌ القائمة فارغة! اضغط /start أولاً.")
         return ConversationHandler.END
 
     status = await update.message.reply_text(f"⏳ جاري الإرسال إلى {len(users)} مستخدم...")
@@ -38,7 +23,11 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for user_id in users:
         try:
-            await context.bot.copy_message(chat_id=user_id, from_chat_id=update.message.chat_id, message_id=update.message.message_id)
+            await context.bot.copy_message(
+                chat_id=user_id, 
+                from_chat_id=update.message.chat_id, 
+                message_id=update.message.message_id
+            )
             success += 1
             await asyncio.sleep(0.05)
         except:
@@ -61,3 +50,4 @@ def setup(app):
     )
     app.add_handler(handler)
     app.add_handler(CommandHandler("stats", stats_command))
+    print("📢 [plugin_extras] تم تفعيل الإذاعة والإحصائيات.")
