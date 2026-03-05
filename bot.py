@@ -8,8 +8,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import yt_dlp
 
-# --- [هام جداً للمشاريع الأخرى] ---
+# --- [مخزن المستخدمين لعمل الإحصائيات] ---
 active_users = set() 
+OWNER_ID = 162459553 
 
 # ---------------- [1] الإعدادات ----------------
 TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
@@ -27,14 +28,13 @@ async def is_subscribed(bot, user_id):
         return member.status in ['member', 'administrator', 'creator']
     except: return False
 
-# ---------------- [3] المحرك الأساسي للتحميل ----------------
+# ---------------- [3] المحرك الأساسي ----------------
 async def download_video(query, context, url, mode):
     msg = await query.edit_message_text("⏳ جاري التحميل (720p)...")
     ydl_opts = {
         'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
         'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
         'merge_output_format': 'mp4',
-        'postprocessor_args': ['-vcodec', 'libx264', '-acodec', 'aac'],
         'quiet': True,
     }
     if mode == 'aud':
@@ -56,57 +56,56 @@ async def download_video(query, context, url, mode):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    active_users.add(uid) 
+    active_users.add(uid) # إضافة المستخدم للقائمة
     
     if await is_subscribed(context.bot, uid):
-        await update.message.reply_text("🚀 أرسل الرابط للتحميل المباشر.\nاستخدم /stats للإحصائيات أو /broadcast للإذاعة (للمطور).")
+        # نص مخصص للمطور ونص مخصص للمستخدم العادي
+        if uid == OWNER_ID:
+            msg = "🚀 أهلاً مطورنا عادل. أرسل الرابط للتحميل.\n\n🛠 **أوامر الإدارة:**\n/stats - الإحصائيات\n/broadcast - الإذاعة"
+        else:
+            msg = "🚀 أرسل الرابط للتحميل المباشر بجودة 720p."
+        
+        await update.message.reply_text(msg)
     else:
         btn = [[InlineKeyboardButton("📢 اشترك هنا", url=CHANNEL_LINK)], [InlineKeyboardButton("✅ اشتركت", callback_data="check")]]
-        await update.message.reply_text("⚠️ اشترك أولاً:", reply_markup=InlineKeyboardMarkup(btn))
+        await update.message.reply_text("⚠️ اشترك أولاً لتتمكن من استخدام البوت:", reply_markup=InlineKeyboardMarkup(btn))
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-    if not url.startswith("http"): return
+    if not update.message.text.startswith("http"): return
     if not await is_subscribed(context.bot, update.effective_user.id): return
     
-    link_id = str(random.randint(100, 999))
-    context.user_data[link_id] = url
-    keys = [[InlineKeyboardButton("🎬 فيديو", callback_data=f"vid|{link_id}"), InlineKeyboardButton("🎵 صوت", callback_data=f"aud|{link_id}")]]
+    lid = str(random.randint(100, 999))
+    context.user_data[lid] = update.message.text
+    keys = [[InlineKeyboardButton("🎬 فيديو", callback_data=f"vid|{lid}"), InlineKeyboardButton("🎵 صوت", callback_data=f"aud|{lid}")]]
     await update.message.reply_text("اختر الصيغة:", reply_markup=InlineKeyboardMarkup(keys))
 
 async def cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "check":
-        if await is_subscribed(context.bot, query.from_user.id): await query.edit_message_text("✅ تم التحقق!")
+        if await is_subscribed(context.bot, query.from_user.id): await query.edit_message_text("✅ تم التحقق! أرسل رابطك الآن.")
     elif "|" in query.data:
         mode, lid = query.data.split("|")
         url = context.user_data.get(lid)
         if url: await download_video(query, context, url, mode)
 
-# ---------------- [4] نظام الربط التلقائي ----------------
 def load_plugins(app):
-    for plugin_file in glob.glob("plugin_*.py"):
-        module_name = plugin_file[:-3]
+    for f in glob.glob("plugin_*.py"):
+        module_name = f[:-3]
         try:
-            module = importlib.import_module(module_name)
-            importlib.reload(module)
-            if hasattr(module, "setup"):
-                module.setup(app)
-                print(f"✅ تم ربط المشروع الإضافي: {module_name}")
-        except Exception as e:
-            print(f"❌ خطأ في تحميل {module_name}: {e}")
+            m = importlib.import_module(module_name)
+            importlib.reload(m)
+            if hasattr(m, "setup"): m.setup(app)
+            print(f"✅ الربط: {module_name}")
+        except Exception as e: print(f"❌ خطأ: {e}")
 
-# ---------------- [5] التشغيل ----------------
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(cb))
-    
     load_plugins(app)
-    
-    print("--- البوت الأساسي يعمل وجاهز ---")
+    print("--- البوت يعمل الآن ---")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
