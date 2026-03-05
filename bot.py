@@ -1,12 +1,10 @@
 import os
 import logging
-import datetime
 import asyncio
 import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import yt_dlp
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ---------------- [1] الإعدادات ----------------
 TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
@@ -14,112 +12,119 @@ OWNER_ID = 162459553
 CHANNEL_ID = -1003773995399
 CHANNEL_LINK = "https://t.me/+nBVM5qNb2uphMzUy"
 DOWNLOAD_DIR = 'downloads'
-DEFAULT_POINTS = 15
 
-user_points = {}
 active_users = set()
 
 logging.basicConfig(level=logging.INFO)
 if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
 
-# ---------------- [2] وظائف التحقق ----------------
+# ---------------- [2] وظيفة التحقق من الاشتراك ----------------
 async def is_subscribed(bot, user_id):
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
         return member.status in ['member', 'administrator', 'creator']
     except: return False
 
-async def reset_daily_points():
-    for user_id in user_points:
-        user_points[user_id] = DEFAULT_POINTS
-    logging.info("♻️ تم تجديد النقاط اليومية.")
-
-# ---------------- [3] المحرك الأساسي 720p ----------------
-async def download_logic(query, context, url, mode):
-    user_id = query.from_user.id
-    msg_status = await query.edit_message_text("⏳ جاري المعالجة (720p MP4)...")
+# ---------------- [3] محرك التحميل (720p MP4) ----------------
+async def download_video(query, context, url, mode):
+    msg = await query.edit_message_text("⏳ جاري التحميل بدقة 720p... يرجى الانتظار")
     
-    def ytdlp_process():
-        ydl_opts = {
-            'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
-            'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
-            'merge_output_format': 'mp4',
-            'postprocessor_args': ['-vcodec', 'libx264', '-acodec', 'aac'],
-            'quiet': True,
-            'no_warnings': True
-        }
-        if mode == 'aud':
-            ydl_opts.update({'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]})
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            return ydl.prepare_filename(info)
+    ydl_opts = {
+        # إعدادات ثابتة لجميع المنصات لضمان دقة 720p وصيغة MP4
+        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
+        'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
+        'merge_output_format': 'mp4',
+        'postprocessor_args': ['-vcodec', 'libx264', '-acodec', 'aac'], # ترميز منع الشاشة السوداء
+        'quiet': True,
+        'no_warnings': True
+    }
+    
+    if mode == 'aud':
+        ydl_opts.update({'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]})
 
     try:
-        path = await asyncio.get_running_loop().run_in_executor(None, ytdlp_process)
+        def dl():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info)
+
+        path = await asyncio.to_thread(dl)
         final_path = path if mode == 'vid' else os.path.splitext(path)[0] + '.mp3'
-        
+
         with open(final_path, 'rb') as f:
-            if mode == 'vid': await query.message.reply_video(video=f, caption="✅ @AN_AZ22", supports_streaming=True)
-            else: await query.message.reply_audio(audio=f, caption="✅ @AN_AZ22")
-            
-        if user_id != OWNER_ID: user_points[user_id] -= 1
+            caption = "✅ تم التحميل بنجاح بواسطة @AN_AZ22"
+            if mode == 'vid': 
+                await query.message.reply_video(f, caption=caption, supports_streaming=True)
+            else: 
+                await query.message.reply_audio(f, caption=caption)
+        
         if os.path.exists(final_path): os.remove(final_path)
-        await msg_status.delete()
+        await msg.delete()
     except Exception as e:
-        await msg_status.edit_text(f"❌ خطأ في التحميل.")
+        logging.error(f"Download Error: {e}")
+        await msg.edit_text("❌ فشل التحميل. تأكد من الرابط أو حاول مرة أخرى.")
 
 # ---------------- [4] الأوامر ومعالجة الرسائل ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    active_users.add(user_id)
-    if user_id not in user_points: user_points[user_id] = DEFAULT_POINTS
+    uid = update.effective_user.id
+    active_users.add(uid)
     
-    if await is_subscribed(context.bot, user_id):
-        await update.message.reply_text(f"🚀 **مرحباً بك!**\nرصيدك: {user_points[user_id]} نقطة.\nأرسل رابطاً للتحميل.")
+    welcome_msg = "🚀 **أهلاً بك في بوت التحميل الشامل!**\n\nالتحميل الآن **مجاني وغير محدود**.\nأرسل أي رابط (تيك توك، يوتيوب، إنستغرام، بنترست) وسأقوم بتحميله لك بدقة 720p."
+    
+    if await is_subscribed(context.bot, uid):
+        await update.message.reply_text(welcome_msg, parse_mode='Markdown')
     else:
-        keys = [[InlineKeyboardButton("📢 اشترك هنا", url=CHANNEL_LINK)], [InlineKeyboardButton("✅ تم الاشتراك", callback_data="check_sub")]]
-        await update.message.reply_text("⚠️ اشترك أولاً:", reply_markup=InlineKeyboardMarkup(keys))
+        btn = [[InlineKeyboardButton("📢 اشترك في القناة", url=CHANNEL_LINK)], 
+               [InlineKeyboardButton("✅ تم الاشتراك", callback_data="check_sub")]]
+        await update.message.reply_text("⚠️ **يجب عليك الاشتراك في القناة أولاً لتتمكن من استخدام البوت:**", 
+                                      reply_markup=InlineKeyboardMarkup(btn), parse_mode='Markdown')
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     url = update.message.text
-    if not url.startswith("http"): return
-    if not await is_subscribed(context.bot, user_id): return
     
+    if not url.startswith("http"): return
+    
+    # فحص الاشتراك الإجباري
+    if not await is_subscribed(context.bot, user_id):
+        btn = [[InlineKeyboardButton("📢 اشترك في القناة", url=CHANNEL_LINK)], 
+               [InlineKeyboardButton("✅ تم الاشتراك", callback_data="check_sub")]]
+        return await update.message.reply_text("⚠️ اشترك أولاً لتتمكن من التحميل:", reply_markup=InlineKeyboardMarkup(btn))
+
     link_id = str(random.randint(1000, 9999))
     context.user_data[link_id] = url
-    keys = [[InlineKeyboardButton("🎬 فيديو", callback_data=f'vid|{link_id}'), InlineKeyboardButton("🎵 صوت", callback_data=f'aud|{link_id}')]]
-    await update.message.reply_text("اختر النوع:", reply_markup=InlineKeyboardMarkup(keys))
+    
+    keys = [[InlineKeyboardButton("🎬 فيديو MP4 (720p)", callback_data=f"vid|{link_id}"), 
+             InlineKeyboardButton("🎵 صوت MP3", callback_data=f"aud|{link_id}")]]
+    
+    await update.message.reply_text("⚙️ **اختر الصيغة المطلوبة:**", reply_markup=InlineKeyboardMarkup(keys), parse_mode='Markdown')
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     if query.data == "check_sub":
-        if await is_subscribed(context.bot, query.from_user.id): await query.edit_message_text("✅ تم التحقق!")
+        if await is_subscribed(context.bot, query.from_user.id):
+            await query.edit_message_text("✅ تم التحقق! يمكنك الآن إرسال الروابط والتحميل مجاناً.")
     elif "|" in query.data:
-        mode, link_id = query.data.split('|')
-        url = context.user_data.get(link_id)
-        if url: await download_logic(query, context, url, mode)
+        mode, lid = query.data.split("|")
+        url = context.user_data.get(lid)
+        if url: 
+            await download_video(query, context, url, mode)
 
-# ---------------- [5] التشغيل المصحح ----------------
+# ---------------- [5] تشغيل البوت ----------------
 async def main():
     app = Application.builder().token(TOKEN).build()
     
-    # تشغيل المجدل داخل حلقة الأحداث (حل مشكلة الصورة الثانية)
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(reset_daily_points, 'interval', hours=24)
-    scheduler.start()
-
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(callback_handler))
     
-    print("--- البوت يعمل الآن ---")
+    print("--- البوت يعمل الآن بنجاح (بدون نقاط) ---")
     
     async with app:
         await app.initialize()
-        await app.start_polling(drop_pending_updates=True) # حل مشكلة الصورة الأولى (Conflict)
+        await app.start_polling(drop_pending_updates=True)
         await asyncio.Event().wait()
 
 if __name__ == '__main__':
