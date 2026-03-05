@@ -4,5 +4,4 @@ moviepy
 requests
 google-genai
 apscheduler
-python-telegram-bot
 yt-dlp[default]
