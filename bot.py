@@ -2,11 +2,14 @@ import os
 import logging
 import asyncio
 import random
-import importlib  # مكتبة الربط التلقائي
-import glob       # مكتبة البحث عن الملفات
+import importlib
+import glob
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import yt_dlp
+
+# --- [هام جداً للمشاريع الأخرى] ---
+active_users = set() 
 
 # ---------------- [1] الإعدادات ----------------
 TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
@@ -42,8 +45,8 @@ async def download_video(query, context, url, mode):
         final_path = path if mode == 'vid' else os.path.splitext(path)[0] + '.mp3'
         
         with open(final_path, 'rb') as f:
-            if mode == 'vid': await query.message.reply_video(f, caption="✅ تم بواسطة @AN_AZ22")
-            else: await query.message.reply_audio(f, caption="✅ تم بواسطة @AN_AZ22")
+            if mode == 'vid': await query.message.reply_video(f, caption="✅ تم بواسطة @Down2024_bot")
+            else: await query.message.reply_audio(f, caption="✅ تم بواسطة @Down2024_bot")
         
         if os.path.exists(final_path): os.remove(final_path)
         await msg.delete()
@@ -52,8 +55,11 @@ async def download_video(query, context, url, mode):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    # إضافة المستخدم للقائمة فوراً لكي تظهر في الإحصائيات والإذاعة
+    active_users.add(uid) 
+    
     if await is_subscribed(context.bot, uid):
-        await update.message.reply_text("🚀 أرسل الرابط للتحميل المباشر.\nاستخدم /help لرؤية الميزات الإضافية.")
+        await update.message.reply_text("🚀 أرسل الرابط للتحميل المباشر.\nاستخدم /help_extra للميزات الإضافية.")
     else:
         btn = [[InlineKeyboardButton("📢 اشترك هنا", url=CHANNEL_LINK)], [InlineKeyboardButton("✅ اشتركت", callback_data="check")]]
         await update.message.reply_text("⚠️ اشترك أولاً:", reply_markup=InlineKeyboardMarkup(btn))
@@ -78,29 +84,31 @@ async def cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = context.user_data.get(lid)
         if url: await download_video(query, context, url, mode)
 
-# ---------------- [4] نظام الربط التلقائي (المشروع الثاني) ----------------
+# ---------------- [4] نظام الربط التلقائي ----------------
 def load_plugins(app):
-    """تبحث هذه الدالة عن أي ملف يبدأ بـ plugin_ وتضيف الأوامر منه تلقائياً"""
     for plugin_file in glob.glob("plugin_*.py"):
-        module_name = plugin_file[:-3]  # حذف .py من الاسم
-        module = importlib.import_module(module_name)
-        if hasattr(module, "setup"):
-            module.setup(app)
-            print(f"✅ تم ربط المشروع الإضافي: {module_name}")
+        module_name = plugin_file[:-3]
+        try:
+            # إعادة تحميل الموديول للتأكد من تحديث البيانات
+            module = importlib.import_module(module_name)
+            importlib.reload(module)
+            if hasattr(module, "setup"):
+                module.setup(app)
+                print(f"✅ تم ربط المشروع الإضافي: {module_name}")
+        except Exception as e:
+            print(f"❌ خطأ في تحميل {module_name}: {e}")
 
-# ---------------- [5] تشغيل البوت ----------------
+# ---------------- [5] التشغيل ----------------
 def main():
     app = Application.builder().token(TOKEN).build()
     
-    # 1. تحميل أوامر الكود الأساسي
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(cb))
     
-    # 2. تحميل المشاريع الإضافية تلقائياً
     load_plugins(app)
     
-    print("--- البوت الأساسي يعمل وجاهز لاستقبال مشاريع إضافية ---")
+    print("--- البوت الأساسي يعمل وجاهز ---")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
