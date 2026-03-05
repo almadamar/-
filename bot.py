@@ -2,6 +2,8 @@ import os
 import logging
 import asyncio
 import random
+import importlib  # مكتبة الربط التلقائي
+import glob       # مكتبة البحث عن الملفات
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import yt_dlp
@@ -22,7 +24,7 @@ async def is_subscribed(bot, user_id):
         return member.status in ['member', 'administrator', 'creator']
     except: return False
 
-# ---------------- [3] المحرك (720p MP4) ----------------
+# ---------------- [3] المحرك الأساسي للتحميل ----------------
 async def download_video(query, context, url, mode):
     msg = await query.edit_message_text("⏳ جاري التحميل (720p)...")
     ydl_opts = {
@@ -48,11 +50,10 @@ async def download_video(query, context, url, mode):
     except:
         await msg.edit_text("❌ فشل التحميل.")
 
-# ---------------- [4] الأوامر ومعالجة الرسائل ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if await is_subscribed(context.bot, uid):
-        await update.message.reply_text("🚀 أرسل الرابط للتحميل المباشر (720p).")
+        await update.message.reply_text("🚀 أرسل الرابط للتحميل المباشر.\nاستخدم /help لرؤية الميزات الإضافية.")
     else:
         btn = [[InlineKeyboardButton("📢 اشترك هنا", url=CHANNEL_LINK)], [InlineKeyboardButton("✅ اشتركت", callback_data="check")]]
         await update.message.reply_text("⚠️ اشترك أولاً:", reply_markup=InlineKeyboardMarkup(btn))
@@ -77,18 +78,29 @@ async def cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = context.user_data.get(lid)
         if url: await download_video(query, context, url, mode)
 
-# ---------------- [5] طريقة التشغيل الصحيحة لـ Render ----------------
+# ---------------- [4] نظام الربط التلقائي (المشروع الثاني) ----------------
+def load_plugins(app):
+    """تبحث هذه الدالة عن أي ملف يبدأ بـ plugin_ وتضيف الأوامر منه تلقائياً"""
+    for plugin_file in glob.glob("plugin_*.py"):
+        module_name = plugin_file[:-3]  # حذف .py من الاسم
+        module = importlib.import_module(module_name)
+        if hasattr(module, "setup"):
+            module.setup(app)
+            print(f"✅ تم ربط المشروع الإضافي: {module_name}")
+
+# ---------------- [5] تشغيل البوت ----------------
 def main():
-    # استخدام الطريقة القياسية لتجنب AttributeError
     app = Application.builder().token(TOKEN).build()
     
+    # 1. تحميل أوامر الكود الأساسي
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(cb))
     
-    print("--- البوت يعمل الآن بنجاح (بدون نقاط) ---")
+    # 2. تحميل المشاريع الإضافية تلقائياً
+    load_plugins(app)
     
-    # استخدام run_polling مباشرة وهي الطريقة المستقرة
+    print("--- البوت الأساسي يعمل وجاهز لاستقبال مشاريع إضافية ---")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
