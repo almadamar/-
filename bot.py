@@ -1,12 +1,3 @@
-# في ملف bot.py الأساسي
-# تأكد من وضع هذا السطر في الأعلى تماماً (خارج كل الدوال)
-active_users = set() 
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    # هذا السطر هو المحرك الفعلي للإحصائيات والإذاعة
-    active_users.add(uid) 
-    # ... بقية كود الترحيب ...
 import os
 import logging
 import asyncio
@@ -54,8 +45,9 @@ async def download_video(query, context, url, mode):
         final_path = path if mode == 'vid' else os.path.splitext(path)[0] + '.mp3'
         
         with open(final_path, 'rb') as f:
-            if mode == 'vid': await query.message.reply_video(f, caption="✅ تم بواسطة @Down2024_bot")
-            else: await query.message.reply_audio(f, caption="✅ تم بواسطة @Down2024_bot")
+            caption = "✅ تم بواسطة @Down2024_bot"
+            if mode == 'vid': await query.message.reply_video(f, caption=caption)
+            else: await query.message.reply_audio(f, caption=caption)
         
         if os.path.exists(final_path): os.remove(final_path)
         await msg.delete()
@@ -64,11 +56,10 @@ async def download_video(query, context, url, mode):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    # إضافة المستخدم للقائمة فوراً لكي تظهر في الإحصائيات والإذاعة
     active_users.add(uid) 
     
     if await is_subscribed(context.bot, uid):
-        await update.message.reply_text("🚀 أرسل الرابط للتحميل المباشر.\nاستخدم /help_extra للميزات الإضافية.")
+        await update.message.reply_text("🚀 أرسل الرابط للتحميل المباشر.\nاستخدم /stats للإحصائيات أو /broadcast للإذاعة (للمطور).")
     else:
         btn = [[InlineKeyboardButton("📢 اشترك هنا", url=CHANNEL_LINK)], [InlineKeyboardButton("✅ اشتركت", callback_data="check")]]
         await update.message.reply_text("⚠️ اشترك أولاً:", reply_markup=InlineKeyboardMarkup(btn))
@@ -98,7 +89,6 @@ def load_plugins(app):
     for plugin_file in glob.glob("plugin_*.py"):
         module_name = plugin_file[:-3]
         try:
-            # إعادة تحميل الموديول للتأكد من تحديث البيانات
             module = importlib.import_module(module_name)
             importlib.reload(module)
             if hasattr(module, "setup"):
@@ -110,7 +100,6 @@ def load_plugins(app):
 # ---------------- [5] التشغيل ----------------
 def main():
     app = Application.builder().token(TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(cb))
