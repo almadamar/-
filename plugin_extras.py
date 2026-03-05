@@ -1,3 +1,17 @@
+# في ملف plugin_extras.py
+import bot  # استيراد الملف الأساسي للوصول للقائمة
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID: return
+    
+    # الوصول للقائمة الحية من bot.py
+    current_users = bot.active_users
+    await update.message.reply_text(f"📊 عدد المستخدمين المسجلين حالياً: {len(current_users)}")
+
+async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # استخدام نفس القائمة للإذاعة
+    users_to_message = bot.active_users
+    # ... كود الإرسال ...
 # plugin_extras.py
 import asyncio
 from telegram import Update
