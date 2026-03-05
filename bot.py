@@ -1,3 +1,12 @@
+# في ملف bot.py الأساسي
+# تأكد من وضع هذا السطر في الأعلى تماماً (خارج كل الدوال)
+active_users = set() 
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    # هذا السطر هو المحرك الفعلي للإحصائيات والإذاعة
+    active_users.add(uid) 
+    # ... بقية كود الترحيب ...
 import os
 import logging
 import asyncio
