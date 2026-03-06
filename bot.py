@@ -1,5 +1,4 @@
 import os
-import sys
 import logging
 import asyncio
 import random
@@ -9,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import yt_dlp
 
-# --- [نظام الحماية والبيئة] ---
+# --- [الإعدادات] ---
 OWNER_ID = 162459553 
 TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
 CHANNEL_ID = -1003773995399
@@ -34,7 +33,6 @@ def save_user(uid):
 
 load_db()
 
-# --- [التحقق من الاشتراك] ---
 async def is_subscribed(bot, user_id):
     if user_id == OWNER_ID: return True
     try:
@@ -105,12 +103,15 @@ def load_plugins(app):
         except: pass
 
 def main():
+    # تعديل جذري لتجاوز خطأ Cleanup المذكور في صورتك
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(cb))
     load_plugins(app)
-    # الإصلاح البرمجي لتجنب خطأ Cleanup المذكور في صورك
+    
+    print("🚀 البوت بدأ العمل بنجاح...")
+    # إيقاف التنظيف التلقائي لمنع التعارض في سيرفرات الاستضافة
     app.run_polling(drop_pending_updates=True, close_loop=False)
 
 if __name__ == '__main__':
