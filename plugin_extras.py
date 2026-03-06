@@ -8,11 +8,11 @@ BROADCAST_STATE = 1
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import bot
     if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text(f"📊 إحصائيات البوت:\n👥 مستخدمين: {len(bot.active_users)}")
+    await update.message.reply_text(f"📊 إحصائيات البوت: {len(bot.active_users)} مستخدم")
 
 async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text("📢 أرسل رسالة الإذاعة الآن:")
+    await update.message.reply_text("📢 أرسل الإذاعة:")
     return BROADCAST_STATE
 
 async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -25,7 +25,7 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             s += 1
             await asyncio.sleep(0.05)
         except: f += 1
-    await msg.edit_text(f"✅ اكتملت الإذاعة:\n✔ نجاح: {s}\n✖ فشل: {f}")
+    await msg.edit_text(f"✅ تم بنجاح: {s}\n❌ فشل: {f}")
     return ConversationHandler.END
 
 def setup(app):
