@@ -56,63 +56,92 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_subscribed(context.bot, update.effective_user.id):
         await update.message.reply_text("❌ اشترك في القناة أولاً.")
         return
-    if not update.message.text.startswith("http"): return
-    lid = str(random.randint(100, 999))
-    context.user_data[lid] = update.message.text
-    keys = [[InlineKeyboardButton("🎬 فيديو", callback_data=f"vid|{lid}"), InlineKeyboardButton("🎵 صوت", callback_data=f"aud|{lid}")]]
-    await update.message.reply_text("اختر الصيغة:", reply_markup=InlineKeyboardMarkup(keys))
+    text = update.message.text
+    if not (text.startswith("http") or text.startswith("www")): return
+    
+    lid = str(random.randint(1000, 9999))
+    context.user_data[lid] = text
+    keys = [[
+        InlineKeyboardButton("🎬 فيديو", callback_data=f"vid|{lid}"),
+        InlineKeyboardButton("🎵 صوت", callback_data=f"aud|{lid}")
+    ]]
+    await update.message.reply_text("اختر الصيغة المطلوبة:", reply_markup=InlineKeyboardMarkup(keys))
 
 async def download_video(query, context, url, mode):
-    msg = await query.edit_message_text("⏳ جاري التحميل...")
+    msg = await query.edit_message_text("⏳ جاري معالجة الرابط والتحميل...")
+    
+    # إعدادات محسنة للعمل بدون FFmpeg خارجي ولتوفير الذاكرة
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
+        'format': 'best[ext=mp4]/best', # تحميل ملف مدمج جاهز
         'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
-        'merge_output_format': 'mp4', 'quiet': True, 'nocheckcertificate': True, 'impersonate': 'chrome'
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'impersonate': 'chrome',
+        'max_filesize': 50 * 1024 * 1024, # حد أقصى 50 ميجا لضمان استقرار السيرفر المجاني
     }
+    
     if mode == 'aud':
-        ydl_opts.update({'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}]})
+        ydl_opts.update({'format': 'bestaudio/best'})
+
     try:
+        # تنفيذ التحميل في خيط منفصل لمنع تجميد البوت
         info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=True))
-        path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
-        final_path = path if mode == 'vid' else os.path.splitext(path)[0] + '.mp3'
-        with open(final_path, 'rb') as f:
-            cap = "✅ تم بواسطة @Down2024_bot"
-            if mode == 'vid': await query.message.reply_video(f, caption=cap)
-            else: await query.message.reply_audio(f, caption=cap)
-        if os.path.exists(final_path): os.remove(final_path)
+        file_path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
+        
+        # التأكد من وجود الملف قبل الإرسال
+        if not os.path.exists(file_path):
+            raise Exception("الملف لم يحفظ بشكل صحيح على السيرفر.")
+
+        caption = "✅ تم التحميل بنجاح بواسطة @Down2024_bot"
+        
+        with open(file_path, 'rb') as f:
+            if mode == 'vid':
+                await query.message.reply_video(video=f, caption=caption)
+            else:
+                await query.message.reply_audio(audio=f, caption=caption)
+        
+        # تنظيف الملفات بعد الإرسال لتوفير المساحة
+        if os.path.exists(file_path):
+            os.remove(file_path)
         await msg.delete()
-    except: await msg.edit_text("❌ فشل التحميل. تأكد من الرابط.")
+
+    except Exception as e:
+        error_msg = str(e)
+        logging.error(f"Download Error: {error_msg}")
+        # رسالة خطأ ذكية تخبرك بالسبب في السجلات
+        await msg.edit_text(f"❌ فشل التحميل.\nالسبب: {error_msg[:100]}")
 
 async def cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    uid = query.from_user.id
+    
     if query.data == "check":
-        if await is_subscribed(context.bot, query.from_user.id):
-            await query.edit_message_text("✅ تم التفعيل، أرسل الرابط.")
-        else: await query.answer("⚠️ لم تشترك بعد!", show_alert=True)
+        if await is_subscribed(context.bot, uid):
+            await query.edit_message_text("✅ تم تأكيد الاشتراك، يمكنك الآن إرسال الروابط.")
+        else:
+            await query.answer("⚠️ يجب عليك الانضمام للقناة أولاً!", show_alert=True)
+            
     elif "|" in query.data:
         mode, lid = query.data.split("|")
         url = context.user_data.get(lid)
-        if url: await download_video(query, context, url, mode)
-
-def load_plugins(app):
-    for f in glob.glob("plugin_*.py"):
-        try:
-            m = importlib.import_module(f[:-3])
-            if hasattr(m, "setup"): m.setup(app)
-        except: pass
+        if url:
+            await download_video(query, context, url, mode)
+        else:
+            await query.edit_message_text("⚠️ انتهت صلاحية الرابط، يرجى إرساله مرة أخرى.")
 
 def main():
-    # تعديل جذري لتجاوز خطأ Cleanup المذكور في صورتك
+    # بناء التطبيق مع ضبط إعدادات الاستقرار لـ Render
     app = Application.builder().token(TOKEN).build()
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(cb))
-    load_plugins(app)
     
-    print("🚀 البوت بدأ العمل بنجاح...")
-    # إيقاف التنظيف التلقائي لمنع التعارض في سيرفرات الاستضافة
-    app.run_polling(drop_pending_updates=True, close_loop=False)
+    print("🚀 البوت متصل الآن وجاهز للعمل...")
+    # استخدام drop_pending_updates لتجنب الـ Conflict عند إعادة التشغيل
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
