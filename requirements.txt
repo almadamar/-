@@ -1,8 +1,3 @@
-yt-dlp
-moviepy
-requests
-google-genai
-apscheduler
-yt-dlp[default]
 python-telegram-bot==20.8
+yt-dlp
 ffmpeg-python
