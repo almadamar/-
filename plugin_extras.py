@@ -1,37 +1,14 @@
-import asyncio
+import re
 from telegram import Update
-from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes
 
-OWNER_ID = 162459553 
-BROADCAST_STATE = 1
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import bot
-    if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text(f"📊 الإحصائيات:\n👥 المستخدمين: {len(bot.active_users)}")
-
-async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
-    await update.message.reply_text("📢 أرسل الإذاعة:")
-    return BROADCAST_STATE
-
-async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import bot
-    s, f = 0, 0
-    msg = await update.message.reply_text("⏳ جاري النشر...")
-    for uid in bot.active_users:
-        try:
-            await context.bot.copy_message(chat_id=uid, from_chat_id=update.message.chat_id, message_id=update.message.message_id)
-            s += 1
-            await asyncio.sleep(0.05)
-        except: f += 1
-    await msg.edit_text(f"✅ تم الإرسال لـ: {s}\n❌ فشل: {f}")
-    return ConversationHandler.END
+    if not await bot.is_subscribed(context.bot, update.effective_user.id):
+        await update.message.reply_text("❌ يرجى الاشتراك في القناة أولاً.")
+        return
+    help_text = "🚀 **كيفية الاستخدام:**\nأرسل أي رابط من (يوتيوب، تيك توك، إنستغرام) وسأقوم بتحميله لك بجودة 720p تلقائياً!"
+    await update.message.reply_text(help_text, parse_mode='Markdown')
 
 def setup(app):
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("broadcast", start_broadcast)],
-        states={BROADCAST_STATE: [MessageHandler(filters.ALL & ~filters.COMMAND, execute_broadcast)]},
-        fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)]
-    ))
+    app.add_handler(CommandHandler("help", help_command))
