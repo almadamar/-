@@ -1,57 +1,61 @@
 import os, asyncio
-from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CommandHandler, ContextTypes, CallbackQueryHandler
 
-# إعدادات القاعدة والمعرف الخاص بك
 DB_FILE = "users.txt"
 OWNER_ID = 162459553
 
 def get_all_users():
-    """قراءة المستخدمين من الملف مباشرة لضمان دقة الإحصائيات"""
+    """قراءة عدد المستخدمين بدقة"""
     if not os.path.exists(DB_FILE): return set()
     with open(DB_FILE, "r") as f:
         return {int(line.strip()) for line in f if line.strip()}
 
-async def stats_ar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر عرض الإحصائيات بالعربي"""
+async def admin_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض قائمة الخدمات الإدارية للمطور فقط"""
     if update.effective_user.id != OWNER_ID: return
     
-    users = get_all_users()
-    await update.message.reply_text(
-        f"📊 **إحصائيات البوت الحالية:**\n\n"
-        f"👥 عدد المستخدمين النشطين: {len(users)}\n"
-        f"📡 حالة السيرفر: متصل ✅"
+    users_count = len(get_all_users())
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 تحديث الإحصائيات", callback_data="refresh_stats")],
+        [InlineKeyboardButton("📢 إرسال إذاعة (BC)", callback_data="start_bc")],
+        [InlineKeyboardButton("⚙️ إعدادات السيرفر", callback_data="server_info")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = (
+        "🛠 **قائمة خدمات المطور:**\n\n"
+        f"👥 عدد المستخدمين الحالي: `{users_count}`\n"
+        "━━━━━━━━━━━━━━\n"
+        "اختر من الأزرار أدناه للتحكم في البوت:"
     )
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def broadcast_ar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر الإذاعة للكل بالعربي"""
+async def handle_admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة ضغطات أزرار قائمة الخدمات"""
+    query = update.callback_query
     if update.effective_user.id != OWNER_ID: return
     
-    if not context.args:
-        await update.message.reply_text("⚠️ **تنبيه:** يرجى كتابة نص الرسالة بعد الأمر.\nمثال: `/اذاعة نص الرسالة هنا`")
-        return
-
-    msg_to_send = " ".join(context.args)
-    users = get_all_users()
-    count = 0
+    await query.answer()
     
-    status_msg = await update.message.reply_text(f"📢 جاري بدء الإذاعة لـ {len(users)} مستخدم...")
+    if query.data == "refresh_stats":
+        users_count = len(get_all_users())
+        await query.edit_message_text(
+            f"✅ تم التحديث!\n👥 عدد المستخدمين الآن: `{users_count}`",
+            reply_markup=query.message.reply_markup,
+            parse_mode='Markdown'
+        )
+    
+    elif query.data == "start_bc":
+        await query.message.reply_text("💡 لإرسال إذاعة، استخدم الأمر:\n`/اذاعة` متبوعاً برسالتك.")
 
-    for user_id in users:
-        try:
-            await context.bot.send_message(chat_id=user_id, text=msg_to_send)
-            count += 1
-            await asyncio.sleep(0.05) # حماية من حظر التليجرام
-        except:
-            continue
-
-    await status_msg.edit_text(
-        f"✅ **اكتملت عملية الإذاعة!**\n\n"
-        f"📧 وصلت لـ: {count}\n"
-        f"❌ فشلت لـ: {len(users) - count} (حسابات محذوفة أو محظورة)"
-    )
+    elif query.data == "server_info":
+        await query.message.reply_text("🖥 **معلومات السيرفر:**\nالمنطقة: Frankfurt (Render Free)\nالحالة: يعمل ✅")
 
 def setup(app):
-    """ربط الأوامر العربية بالبوت الأساسي"""
-    app.add_handler(CommandHandler("الاحصائيات", stats_ar))
-    app.add_handler(CommandHandler("اذاعة", broadcast_ar))
+    """تسجيل الأوامر العربية الجديدة"""
+    app.add_handler(CommandHandler("خدماتي", admin_services))
+    app.add_handler(CommandHandler("الاحصائيات", admin_services)) # اختصار إضافي
+    app.add_handler(CommandHandler("اذاعة", broadcast_ar)) # دالة الإذاعة السابقة
+    app.add_handler(CallbackQueryHandler(handle_admin_buttons))
