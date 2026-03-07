@@ -1,59 +1,90 @@
-import os, logging, asyncio, random, yt_dlp
+import os, logging, glob, importlib, asyncio, random, yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# --- [الإعدادات] ---
+# --- [الإعدادات الأساسية] ---
+OWNER_ID = 162459553 
 TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
+CHANNEL_ID = -1003773995399
+CHANNEL_LINK = "https://t.me/+nBVM5qNb2uphMzUy"
 DOWNLOAD_DIR = 'downloads'
-if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
+DB_FILE = "users.txt"
 
 logging.basicConfig(level=logging.INFO)
+if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
 
-# --- [دالة التحميل] ---
+active_users = set()
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f:
+            for line in f:
+                if line.strip(): active_users.add(int(line.strip()))
+
+def save_user(uid):
+    if uid not in active_users:
+        active_users.add(uid)
+        with open(DB_FILE, "a") as f: f.write(f"{uid}\n")
+
+load_db()
+
+async def is_subscribed(bot, user_id):
+    if user_id == OWNER_ID: return True
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except: return False
+
+# --- [دالة التحميل المركزية - 720p فقط] ---
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    save_user(uid)
     url = update.message.text
     if not (url.startswith("http") or url.startswith("www")): return
     
-    msg = await update.message.reply_text("⏳ جاري تحميل الفيديو...")
+    if not await is_subscribed(context.bot, uid):
+        btn = [[InlineKeyboardButton("📢 انضم للقناة", url=CHANNEL_LINK)]]
+        await update.message.reply_text("⚠️ اشترك أولاً ثم أرسل الرابط.", reply_markup=InlineKeyboardMarkup(btn))
+        return
+
+    msg = await update.message.reply_text("⏳ جاري تحميل الفيديو بجودة 720p...")
     
-    # إعدادات مبسطة جداً لتحميل فيديو MP4 جاهز دون الحاجة لـ FFmpeg
     ydl_opts = {
-        'format': 'best[ext=mp4]/best', 
+        # طلب جودة 720p mp4 مباشرة أو أفضل جودة أقل منها إذا لم تتوفر
+        'format': 'best[height<=720][ext=mp4]/best[ext=mp4]/best', 
         'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
         'nocheckcertificate': True,
         'quiet': True,
-        'no_warnings': True,
-        'max_filesize': 45 * 1024 * 1024  # حد 45 ميجا لتناسب سيرفر Render المجاني
+        'max_filesize': 48 * 1024 * 1024 # لضمان عدم توقف سيرفر Render المجاني
     }
-    
+
     try:
-        # تنفيذ التحميل
         info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=True))
         file_path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
         
-        # إرسال الفيديو
         with open(file_path, 'rb') as f:
-            await update.message.reply_video(video=f, caption="✅ تم التحميل بواسطة @Down2024_bot")
+            await update.message.reply_video(video=f, caption="✅ تم التحميل بجودة 720p")
         
-        # حذف الملف من السيرفر فوراً لتوفير المساحة
         if os.path.exists(file_path): os.remove(file_path)
         await msg.delete()
-        
     except Exception as e:
-        logging.error(f"Error: {str(e)}")
-        await msg.edit_text("❌ فشل التحميل. قد يكون الرابط محمي أو حجمه كبير جداً.")
+        logging.error(f"Error: {e}")
+        await msg.edit_text("❌ فشل التحميل. الرابط غير مدعوم أو الحجم كبير جداً.")
 
-# --- [تشغيل البوت] ---
+def load_plugins(app):
+    for f in glob.glob("plugin_*.py"):
+        try:
+            m = importlib.import_module(f[:-3])
+            if hasattr(m, "setup"): m.setup(app)
+        except Exception as e: logging.error(f"Plugin Error: {e}")
+
 def main():
-    # بناء التطبيق مع حل مشكلة الـ Conflict برمجياً
     app = Application.builder().token(TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", lambda u, c: u.message.reply_text("🚀 أرسل رابط الفيديو للتحميل مباشرة.")))
+    load_plugins(app)
+    app.add_handler(CommandHandler("start", lambda u,c: u.message.reply_text("أرسل الرابط للتحميل مباشرة.")))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
     
-    print("🚀 البوت يعمل الآن (فيديو فقط)...")
-    
-    # drop_pending_updates=True تمسح أي تداخل قديم وتمنع خطأ Conflict
+    print("🚀 البوت بدأ العمل (فيديو 720p فقط)...")
+    # حل مشكلة الـ Conflict برمجياً
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
