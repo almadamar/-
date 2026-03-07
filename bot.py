@@ -1,8 +1,8 @@
-import os, logging, glob, importlib, asyncio, random, yt_dlp
+import os, logging, glob, importlib, asyncio, yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- [الإعدادات الأساسية] ---
+# --- [الإعدادات] ---
 OWNER_ID = 162459553 
 TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
 CHANNEL_ID = -1003773995399
@@ -34,27 +34,28 @@ async def is_subscribed(bot, user_id):
         return member.status in ['member', 'administrator', 'creator']
     except: return False
 
-# --- [دالة التحميل المركزية - 720p فقط] ---
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     save_user(uid)
     url = update.message.text
-    if not (url.startswith("http") or url.startswith("www")): return
+    if not url.startswith("http"): return
     
     if not await is_subscribed(context.bot, uid):
         btn = [[InlineKeyboardButton("📢 انضم للقناة", url=CHANNEL_LINK)]]
         await update.message.reply_text("⚠️ اشترك أولاً ثم أرسل الرابط.", reply_markup=InlineKeyboardMarkup(btn))
         return
 
-    msg = await update.message.reply_text("⏳ جاري تحميل الفيديو بجودة 720p...")
+    msg = await update.message.reply_text("⏳ جاري تحميل الفيديو (720p)...")
     
     ydl_opts = {
-        # طلب جودة 720p mp4 مباشرة أو أفضل جودة أقل منها إذا لم تتوفر
         'format': 'best[height<=720][ext=mp4]/best[ext=mp4]/best', 
         'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
         'nocheckcertificate': True,
         'quiet': True,
-        'max_filesize': 48 * 1024 * 1024 # لضمان عدم توقف سيرفر Render المجاني
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        },
+        'max_filesize': 48 * 1024 * 1024 
     }
 
     try:
@@ -68,7 +69,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.delete()
     except Exception as e:
         logging.error(f"Error: {e}")
-        await msg.edit_text("❌ فشل التحميل. الرابط غير مدعوم أو الحجم كبير جداً.")
+        await msg.edit_text("❌ فشل التحميل. يوتيوب/إنستا قد يكونوا حظروا السيرفر حالياً.")
 
 def load_plugins(app):
     for f in glob.glob("plugin_*.py"):
@@ -83,8 +84,7 @@ def main():
     app.add_handler(CommandHandler("start", lambda u,c: u.message.reply_text("أرسل الرابط للتحميل مباشرة.")))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
     
-    print("🚀 البوت بدأ العمل (فيديو 720p فقط)...")
-    # حل مشكلة الـ Conflict برمجياً
+    print("🚀 البوت بدأ العمل...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
