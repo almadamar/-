@@ -1,29 +1,30 @@
-import os, yt_dlp, asyncio
-from telegram import Update
-from telegram.ext import CallbackQueryHandler, ContextTypes
+import os, yt_dlp, asyncio, random
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
-async def process_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_social(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
+    if any(x in url for x in ["youtube.com", "youtu.be"]): return # يترك الرابط لملحق يوتيوب
+    
+    t_id = f"sc_{random.randint(100, 999)}"
+    context.user_data[t_id] = url
+    btns = [[InlineKeyboardButton("📥 تحميل الفيديو", callback_data=f"sv|{t_id}")]]
+    await update.message.reply_text("📱 تم اكتشاف رابط: اختر التحميل", reply_markup=InlineKeyboardMarkup(btns))
+
+async def process_social(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    # تأمين البيانات قبل التقسيم
-    if not query.data or "|" not in query.data: return 
-
-    try:
-        mode, t_id = query.data.split("|") # السطر 25 المصلح
-        url = context.user_data.get(t_id)
-        if not url: return
-
-        await query.answer("📥 جاري التحميل...")
-        ydl_opts = {'format': 'bestaudio/best', 'outtmpl': f'downloads/%(id)s.%(ext)s', 'quiet': True}
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = await asyncio.to_thread(lambda: ydl.extract_info(url, download=True))
-            path = ydl.prepare_filename(info)
-            
-        with open(path, 'rb') as f:
-            await query.message.reply_audio(audio=f, caption="✅ تم بواسطة بوت أنمار")
-        if os.path.exists(path): os.remove(path)
-
-    except Exception as e: print(f"Download Error: {e}")
+    if not query.data or not query.data.startswith("sv|"): return
+    await query.answer()
+    _, t_id = query.data.split("|")
+    url = context.user_data.get(t_id)
+    
+    ydl_opts = {'format': 'best', 'outtmpl': f'downloads/%(id)s.%(ext)s', 'quiet': True}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = await asyncio.to_thread(lambda: ydl.extract_info(url, download=True))
+        path = ydl.prepare_filename(info)
+        with open(path, 'rb') as f: await query.message.reply_video(f)
+        os.remove(path)
 
 def setup(app):
-    app.add_handler(CallbackQueryHandler(process_download))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_social))
+    app.add_handler(CallbackQueryHandler(process_social))
