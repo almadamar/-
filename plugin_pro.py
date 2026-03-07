@@ -13,12 +13,10 @@ def get_all_users():
 async def kmr_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
     
-    # الاستجابة للكلمة السرية
     users_count = len(get_all_users())
     keyboard = [
         [InlineKeyboardButton("📊 تحديث الإحصائيات", callback_data="refresh_stats")],
-        [InlineKeyboardButton("📢 إرسال إذاعة (BC)", callback_data="start_bc")],
-        [InlineKeyboardButton("🌐 حالة السيرفر", callback_data="server_status")]
+        [InlineKeyboardButton("📢 إرسال إذاعة (BC)", callback_data="start_bc")]
     ]
     
     await update.message.reply_text(
@@ -31,7 +29,7 @@ async def handle_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     if query.from_user.id != OWNER_ID: return
     
-    # إصلاح خطأ Unpack: تجاهل أزرار التحميل
+    # حماية: تجاهل أي بيانات لا تخص الإدارة (مثل أزرار التحميل)
     if "|" in query.data: return 
     
     await query.answer()
@@ -39,8 +37,6 @@ async def handle_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_T
         users_count = len(get_all_users())
         await query.edit_message_text(f"✅ تم التحديث!\n👥 المشتركون: `{users_count}`", 
                                       reply_markup=query.message.reply_markup, parse_mode='Markdown')
-    elif query.data == "start_bc":
-        await query.message.reply_text("💡 أرسل: `/اذاعة نص الرسالة`")
 
 async def broadcast_ar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return
@@ -52,10 +48,9 @@ async def broadcast_ar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(u_id, msg_text)
             await asyncio.sleep(0.05)
         except: continue
-    await update.message.reply_text("✅ تمت الإذاعة بنجاح.")
+    await update.message.reply_text("✅ تمت الإذاعة.")
 
 def setup(app):
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'(?i)kmr|خدماتي'), kmr_panel))
-    app.add_handler(CommandHandler("kmr", kmr_panel))
     app.add_handler(CommandHandler("اذاعة", broadcast_ar))
     app.add_handler(CallbackQueryHandler(handle_admin_callbacks))
