@@ -6,7 +6,6 @@ DOWNLOAD_DIR = 'downloads'
 
 async def handle_youtube_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
-    # التأكد أن الرابط يخص يوتيوب فقط
     if not any(x in url for x in ["youtube.com", "youtu.be"]): return
     
     t_id = f"yt_{random.randint(100, 999)}"
@@ -16,7 +15,7 @@ async def handle_youtube_url(update: Update, context: ContextTypes.DEFAULT_TYPE)
         InlineKeyboardButton("🎬 فيديو (720p)", callback_data=f"yv|{t_id}"),
         InlineKeyboardButton("🎵 صوت (MP3)", callback_data=f"ya|{t_id}")
     ]]
-    await update.message.reply_text("📺 يوتيوب المطور: اختر الصيغة:", reply_markup=InlineKeyboardMarkup(btns))
+    await update.message.reply_text("📺 يوتيوب: اختر الصيغة:", reply_markup=InlineKeyboardMarkup(btns))
 
 async def process_youtube(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -27,16 +26,19 @@ async def process_youtube(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = context.user_data.get(t_id)
     if not url: return
 
-    msg = await query.edit_message_text("⏳ جاري سحب بيانات يوتيوب (تجاوز الحظر)...")
+    msg = await query.edit_message_text("⏳ جاري محاكاة متصفح حقيقي لتجاوز حماية يوتيوب...")
     
-    # إعدادات يوتيوب المكثفة لتجاوز "Sign in to confirm you're not a bot"
+    # إعدادات متقدمة جداً لتجاوز "Sign in to confirm you're not a bot"
     ydl_opts = {
         'nocheckcertificate': True,
         'quiet': True,
         'outtmpl': f'{DOWNLOAD_DIR}/yt_%(id)s.%(ext)s',
+        # استخدام "إصدار متصفح" حديث جداً لتضليل يوتيوب
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'referer': 'https://www.google.com/',
         'geo_bypass': True,
+        # محاكاة عملاء يوتيوب الرسميين (Android/Web)
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'format': 'best[height<=720][ext=mp4]/best' if mode == 'yv' else 'bestaudio/best'
     }
 
@@ -45,13 +47,14 @@ async def process_youtube(update: Update, context: ContextTypes.DEFAULT_TYPE):
         path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
         
         with open(path, 'rb') as f:
-            if mode == 'yv': await query.message.reply_video(f, caption="✅ تم تحميل فيديو يوتيوب")
-            else: await query.message.reply_audio(f, caption="✅ تم استخراج صوت يوتيوب")
+            if mode == 'yv': await query.message.reply_video(f, caption="✅ تم تحميل يوتيوب (720p)")
+            else: await query.message.reply_audio(f, caption="✅ تم استخراج الصوت")
         
         if os.path.exists(path): os.remove(path)
         await msg.delete()
     except Exception as e:
-        await msg.edit_text("❌ يوتيوب لا يزال يرفض السيرفر. الحل: غير منطقة السيرفر في Render.")
+        # إذا فشل الكود، الحل الأخير هو تغيير الـ IP الخاص بالسيرفر
+        await msg.edit_text("❌ يوتيوب حظر عنوان السيرفر الحالي.\n💡 الحل: غير منطقة السيرفر (Region) في Render إلى Oregon.")
 
 def setup(app):
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'youtube|youtu\.be'), handle_youtube_url))
