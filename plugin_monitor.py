@@ -1,39 +1,40 @@
-import os
 from telegram import Update
 from telegram.ext import MessageHandler, filters, ContextTypes
 from config_data import OWNER_ID
 
 async def monitor_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # التأكد أن الرسالة تحتوي على نص ورابط
-    text = update.message.text
-    if not text or not text.startswith("http"):
+    # التأكد من وجود رسالة نصية
+    if not update.message or not update.message.text:
         return
 
-    # استخراج معلومات المستخدم
+    text = update.message.text
+    # نراقب فقط الروابط
+    if not text.startswith("http"):
+        return
+
     user = update.effective_user
-    username = f"@{user.username}" if user.username else "بدون يوزر"
+    username = f"@{user.username}" if user.username else "لا يوجد"
     
-    # صياغة التقرير الاحترافي
+    # صياغة الرسالة كنص عادي (بدون Markdown لتجنب أخطاء الرموز)
     report = (
-        f"🕵️‍♂️ **تقرير نشاط جديد:**\n\n"
-        f"👤 **الاسم:** {user.first_name}\n"
-        f"🏷 **اليوزر:** {username}\n"
-        f"🆔 **الآيدي:** `{user.id}`\n"
-        f"🔗 **الرابط المرسل:**\n{text}\n\n"
-        f"⏳ _جاري معالجته بواسطة الملحقات الأخرى..._"
+        "🕵️‍♂️ كشف تحرك جديد:\n\n"
+        f"👤 الاسم: {user.first_name}\n"
+        f"🏷 اليوزر: {username}\n"
+        f"🆔 الآيدي: {user.id}\n"
+        f"🔗 الرابط:\n{text}"
     )
 
-    # إرسال التقرير إليك فقط في محادثة البوت الخاصة
     try:
+        # إرسال الرسالة بدون parse_mode لتجنب خطأ الـ entities
         await context.bot.send_message(
             chat_id=OWNER_ID,
             text=report,
-            parse_mode='Markdown',
-            disable_web_page_preview=True # لكي لا تظهر معاينة الرابط وتزحم المحادثة
+            disable_web_page_preview=True
         )
+        print(f"✅ Monitor: Report sent successfully to {OWNER_ID}")
     except Exception as e:
-        print(f"Monitor Error: {e}")
+        print(f"❌ Monitor Error: {e}")
 
 def setup(app):
-    # نستخدم Group=-2 لضمان أن هذا الملحق يلقط الرابط قبل أي ملحق آخر
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, monitor_activity), group=-2)
+    # استخدام group=-3 لضمان الأولوية
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, monitor_activity), group=-3)
