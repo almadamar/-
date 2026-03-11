@@ -1,0 +1,2 @@
+OWNER_ID = 162459553
+CHANNEL_LINK = "https://t.me/+nBVM5qNb2uphMzUy"
