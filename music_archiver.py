@@ -3,10 +3,13 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, COMM
+# استيراد الإعدادات المركزية
+from config_data import MUSIC_STORAGE_ID, DOWNLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
-STORAGE_CHANNEL_ID = "@Musiciqh" 
+# استخدام المتغير المستورد لضمان الإرسال للقناة الصحيحة
+STORAGE_CHANNEL_ID = MUSIC_STORAGE_ID 
 BOT_USERNAME = "AutoMusicHubBot"
 
 SONG_OPTS = {
@@ -16,7 +19,7 @@ SONG_OPTS = {
         'preferredcodec': 'mp3',
         'preferredquality': '320'
     }],
-    'outtmpl': 'temp/%(title)s.%(ext)s',
+    'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s', # الحفظ في مجلد التحميلات الموحد
     'quiet': True,
     'no_warnings': True,
 }
@@ -37,13 +40,23 @@ async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # مخصص للروابط التي تصل للبوت مباشرة (في الخاص)
     if update.effective_chat.type == 'private':
         url = update.message.text
-        logger.info(f"📥 استلم البوت المخصص رابطاً: {url}")
+        # قائمة المنصات الصوتية المستهدفة لضمان الاستجابة
+        music_platforms = [
+            "soundcloud", "spotify", "apple", "deezer", 
+            "audiomack", "anghami", "qobuz", "music.youtube", "pin.it", "pinterest"
+        ]
         
-        kb = [[InlineKeyboardButton("🎵 أرشفة في @Musiciqh", callback_data=f"arch_{url}")]]
-        await update.message.reply_text("📥 جاهز للأرشفة.. سأقوم بتغيير الحقوق ورفعها فوراً:", reply_markup=InlineKeyboardMarkup(kb))
+        if any(p in url.lower() for p in music_platforms):
+            logger.info(f"📥 استلم البوت المخصص رابطاً موسيقياً: {url}")
+            kb = [[InlineKeyboardButton("🎵 أرشفة في @Musiciqh", callback_data=f"arch_{url}")]]
+            await update.message.reply_text(
+                "📥 تم رصد رابط موسيقي..\nسأقوم بالتحميل وتغيير الحقوق لـ @Musiciqh فوراً.",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
 
 async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    # استخراج الرابط بشكل آمن
     url = query.data.replace("arch_", "")
     await query.answer()
     
@@ -51,7 +64,7 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def process():
         try:
-            if not os.path.exists('temp'): os.makedirs('temp')
+            if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
             with yt_dlp.YoutubeDL(SONG_OPTS) as ydl:
                 info = ydl.extract_info(url, download=True)
                 title = info.get('title', 'Music_File')
@@ -59,19 +72,29 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 apply_rights(path, title)
                 return True, path, title
         except Exception as e:
+            logger.error(f"❌ خطأ تحميل: {e}")
             return False, str(e), None
 
     success, result, title = await asyncio.to_thread(process)
 
     if success:
-        with open(result, 'rb') as f:
-            await context.bot.send_audio(chat_id=STORAGE_CHANNEL_ID, audio=f, caption=f"🎧 {title}\n✅ تمت الأرشفة في @Musiciqh")
-        await status.edit_text("🏁 تمت الأرشفة بنجاح!")
+        try:
+            with open(result, 'rb') as f:
+                # الإرسال لقناة التخزين المحددة في config_data
+                await context.bot.send_audio(
+                    chat_id=STORAGE_CHANNEL_ID, 
+                    audio=f, 
+                    caption=f"🎧 {title}\n✅ تمت الأرشفة في @Musiciqh"
+                )
+            await status.edit_text("🏁 تمت الأرشفة بنجاح في القناة!")
+        except Exception as e:
+            await status.edit_text(f"⚠️ تم التحميل ولكن فشل الإرسال للقناة: {e}")
+        
         if os.path.exists(result): os.remove(result)
     else:
-        await status.edit_text(f"❌ فشل: {result}")
+        await status.edit_text(f"❌ فشل التحميل: تأكد من صحة الرابط.")
 
 def setup_music_module(application):
-    # يعمل في المجموعة 2 لضمان عدم التداخل
+    # يعمل في المجموعة 2 لضمان استقلاله عن البوت الأساسي
     application.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), on_link_received), group=2)
-    application.add_handler(CallbackQueryHandler(on_button_click), group=2)
+    application.add_handler(CallbackQueryHandler(on_button_click, pattern="^arch_"), group=2)
