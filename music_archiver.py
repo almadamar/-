@@ -2,10 +2,9 @@ import os, yt_dlp, asyncio, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# --- إعدادات القنوات والروابط الخاصة بك ---
 ADMIN_ID = 162459553
-OLD_CHANNEL_ID = "@UpGo2"         # القناة الأساسية للاشتراك
-STORAGE_CHANNEL_ID = "@Musiciqh"   # قناة التخزين
+OLD_CHANNEL_ID = "@UpGo2"
+STORAGE_CHANNEL_ID = "@Musiciqh"
 MAIN_LINK = "https://t.me/UpGo2"
 STORAGE_LINK = "https://t.me/Musiciqh"
 BOT_USERNAME = "AutoMusicHubBot"
@@ -27,49 +26,40 @@ async def check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     if not url or not url.startswith("http"): return
-
     if not await check_sub(update, context):
         kb = [[InlineKeyboardButton("📢 اشترك في القناة الأساسية", url=MAIN_LINK)]]
         await update.message.reply_text("⚠️ يرجى الاشتراك أولاً لاستخدام البوت:", reply_markup=InlineKeyboardMarkup(kb))
         return
-
     kb = [[InlineKeyboardButton("🚀 بدء التحميل والترحيل", callback_data=f"dl_{url}")]]
     await update.message.reply_text("🔗 تم استلام الرابط.. اضغط للبدء:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not query.data.startswith("dl_"): return
     await query.answer()
+    url = query.data.replace("dl_", "")
+    status = await query.edit_message_text("⏳ جاري التحميل... [تحميل 1 ناجح]")
     
-    if query.data.startswith("dl_"):
-        url = query.data.replace("dl_", "")
-        status = await query.edit_message_text("⏳ جاري التحميل... [تحميل 1 ناجح]")
-        
-        def download_task():
-            try:
-                if not os.path.exists('temp'): os.makedirs('temp')
-                with yt_dlp.YoutubeDL(SONG_OPTS) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    path = ydl.prepare_filename(info).rsplit('.', 1)[0] + '.mp3'
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(context.bot.send_audio(
-                        chat_id=STORAGE_CHANNEL_ID,
-                        audio=open(path, 'rb'),
-                        caption=f"🎧 {info.get('title')}\n✅ تمت الأرشفة عبر @{BOT_USERNAME}"
-                    ))
-                    if os.path.exists(path): os.remove(path)
-                return True
-            except: return False
+    def download_task():
+        try:
+            if not os.path.exists('temp'): os.makedirs('temp')
+            with yt_dlp.YoutubeDL(SONG_OPTS) as ydl:
+                info = ydl.extract_info(url, download=True)
+                path = ydl.prepare_filename(info).rsplit('.', 1)[0] + '.mp3'
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(context.bot.send_audio(chat_id=STORAGE_CHANNEL_ID, audio=open(path, 'rb'), caption=f"🎧 {info.get('title')}\n✅ تمت الأرشفة عبر @{BOT_USERNAME}"))
+                if os.path.exists(path): os.remove(path)
+            return True
+        except: return False
 
-        if await asyncio.to_thread(download_task):
-            kb = [
-                [InlineKeyboardButton("📂 مكتبة الأغاني", url=STORAGE_LINK)],
-                [InlineKeyboardButton("📢 قناة UpGo2 الأساسية", url=MAIN_LINK)]
-            ]
-            await status.edit_text("🏁 اكتملت الأرشفة بنجاح!\n\nيمكنك الوصول لخدماتنا عبر الأزرار أدناه:", reply_markup=InlineKeyboardMarkup(kb))
-        else:
-            await status.edit_text("❌ فشل التحميل، جرب رابطاً آخر.")
+    if await asyncio.to_thread(download_task):
+        kb = [[InlineKeyboardButton("📂 مكتبة الأغاني", url=STORAGE_LINK)], [InlineKeyboardButton("📢 قناة UpGo2 الأساسية", url=MAIN_LINK)]]
+        await status.edit_text("🏁 اكتملت الأرشفة بنجاح!", reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await status.edit_text("❌ فشل التحميل.")
 
 def setup_music_module(application):
-    application.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), on_link_received))
-    application.add_handler(CallbackQueryHandler(on_button_click))
+    # تم العزل في المجموعة 2 ليعمل بالتوازي مع البوت القديم
+    application.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), on_link_received), group=2)
+    application.add_handler(CallbackQueryHandler(on_button_click), group=2)
