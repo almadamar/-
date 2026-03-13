@@ -18,11 +18,9 @@ async def yt_dl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     try:
-        # تحميل الفيديو
         info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=True))
         path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
         
-        # --- الأزرار تظهر هنا فقط عند نجاح التحميل ---
         kb = [
             [InlineKeyboardButton("🚀 مشاركة عبر البوت", switch_inline_query=f"@{context.bot.username}")],
             [InlineKeyboardButton("🎵 استخراج الصوت MP3", callback_data=f"ya|{t_id}")]
@@ -40,9 +38,8 @@ async def yt_dl(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print(f"YT DL Error: {e}")
-        # رسالة فشل بدون أزرار
         await status.edit_text("❌ فشل تحميل فيديو يوتيوب. قد يكون الفيديو طويلاً جداً أو محمياً.")
 
 def setup(app):
-    # الفلتر الخاص بروابط يوتيوب فقط
-    app.add_handler(MessageHandler(filters.Regex(r'youtube|youtu\.be'), yt_dl))
+    # الفلتر الخاص بروابط يوتيوب فقط - تم العزل في المجموعة 1
+    app.add_handler(MessageHandler(filters.Regex(r'youtube|youtu\.be'), yt_dl), group=1)
