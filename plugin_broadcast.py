@@ -15,7 +15,7 @@ async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast_msg'] = update.message.text
     kb = [[InlineKeyboardButton("✅ نشر للسحاب", callback_data="confirm_send")], 
           [InlineKeyboardButton("❌ إلغاء", callback_data="cancel_send")]]
-    await update.message.reply_text(f"📝 **معاينة الرسالة:**\n\n{update.message.text}\n\n**هل تود النشر الآن؟**", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text(f"📝 **معاينة:**\n\n{update.message.text}\n\n**هل تود النشر الآن؟**", reply_markup=InlineKeyboardMarkup(kb))
     return CONFIRM_BROADCAST
 
 async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -26,19 +26,21 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     msg = context.user_data.get('broadcast_msg')
-    all_users = await users_col.find().to_list(length=None)
-    
-    await query.edit_message_text(f"🚀 جاري النشر لـ {len(all_users)} مستخدم من السحابة...")
-    
-    sent, fail = 0, 0
-    for doc in all_users:
-        try:
-            await context.bot.send_message(chat_id=doc['user_id'], text=msg)
-            sent += 1
-            await asyncio.sleep(0.05)
-        except: fail += 1
+    try:
+        all_users = await users_col.find().to_list(length=None)
+        await query.edit_message_text(f"🚀 جاري النشر لـ {len(all_users)} مستخدم من السحابة...")
+        
+        sent, fail = 0, 0
+        for doc in all_users:
+            try:
+                await context.bot.send_message(chat_id=doc['user_id'], text=msg)
+                sent += 1
+                await asyncio.sleep(0.05)
+            except: fail += 1
 
-    await context.bot.send_message(chat_id=OWNER_ID, text=f"✅ **اكتملت العملية**\n🟢 نجاح: {sent}\n🔴 فشل: {fail}")
+        await context.bot.send_message(chat_id=OWNER_ID, text=f"✅ **اكتملت العملية**\n🟢 نجاح: {sent}\n🔴 فشل: {fail}")
+    except Exception as e:
+        await query.edit_message_text(f"❌ خطأ أثناء النشر: {e}")
     return ConversationHandler.END
 
 def setup(app):
