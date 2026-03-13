@@ -1,46 +1,38 @@
 import os, importlib, asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters, CallbackQueryHandler
-from motor.motor_asyncio import AsyncIOMotorClient
-from config_data import TOKEN, MONGO_URI, DOWNLOAD_DIR
+from config_data import TOKEN, DOWNLOAD_DIR
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# اتصال مباشر وسريع مع تجاوز مشاكل SSL handshake في Render
-client = AsyncIOMotorClient(
-    MONGO_URI, 
-    tlsAllowInvalidCertificates=True, # حل نهائي لمشكلة SSL
-    serverSelectionTimeoutMS=5000     # تقليل وقت الانتظار لتسريع البوت
-)
-db = client['telegram_bot']
-users_col = db['users']
+# ملف تخزين المشتركين المحلي
+USERS_FILE = "users.txt"
 
-async def register_user(user_id):
-    """حفظ صامت وسريع في السحاب"""
-    try:
-        await users_col.update_one(
-            {'user_id': user_id},
-            {'$set': {'user_id': user_id}},
-            upsert=True
-        )
-    except:
-        pass # تجاهل الخطأ لضمان عدم تأثر سرعة التحميل
+def register_user_local(user_id):
+    """حفظ المستخدم في ملف نصي بسيط"""
+    user_id = str(user_id)
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "w") as f: f.write(user_id + "\n")
+        return
+
+    with open(USERS_FILE, "r") as f:
+        users = f.read().splitlines()
+    
+    if user_id not in users:
+        with open(USERS_FILE, "a") as f:
+            f.write(user_id + "\n")
 
 async def global_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id if update.effective_user else None
     if not user_id and update.callback_query:
         user_id = update.callback_query.from_user.id
     if user_id:
-        asyncio.create_task(register_user(user_id)) # تشغيل في الخلفية لضمان السرعة
+        register_user_local(user_id)
 
 async def post_init(application):
-    # تم إزالة 'plugin_audio_standalone' بناءً على طلبك للاكتفاء بالمدمج
-    plugins = [
-        'plugin_monitor', 'plugin_broadcast', 'plugin_search', 
-        'plugin_pro', 'plugin_youtube', 'plugin_extras'
-    ]
-    print("--- 🚀 تشغيل النسخة السحابية السريعة ---")
+    plugins = ['plugin_monitor', 'plugin_broadcast', 'plugin_search', 'plugin_pro', 'plugin_youtube', 'plugin_extras']
+    print("--- 🚀 تشغيل البوت بنظام التخزين المحلي (مستقر) ---")
     for plugin in plugins:
         try:
             module = importlib.import_module(plugin)
