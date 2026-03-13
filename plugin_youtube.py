@@ -1,40 +1,48 @@
-import os, yt_dlp, asyncio
+import os, yt_dlp, asyncio, random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters, ContextTypes
 from config_data import CHANNEL_LINK
 
 async def yt_dl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
-    if not any(x in url for x in ["youtube.com", "youtu.be"]): return
+    status = await update.message.reply_text("📺 جاري معالجة فيديو يوتيوب...")
     
-    bot_info = await context.bot.get_me()
-    status = await update.message.reply_text("📺 جاري معالجة يوتيوب...")
+    t_id = f"yt_{random.randint(100, 999)}"
+    context.user_data[t_id] = url
 
     ydl_opts = {
         'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]/best',
         'outtmpl': 'downloads/%(id)s.%(ext)s',
-        'quiet': True
+        'quiet': True,
+        'no_warnings': True,
     }
 
     try:
-        def run():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info)
-
-        path = await asyncio.to_thread(run)
+        # تحميل الفيديو
+        info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=True))
+        path = yt_dlp.YoutubeDL(ydl_opts).prepare_filename(info)
         
-        caption = f"🎬 يوتيوب: @{bot_info.username}\n📢 {CHANNEL_LINK}"
-        kb = [[InlineKeyboardButton("🚀 مشاركة", switch_inline_query=f"@{bot_info.username}")],
-              [InlineKeyboardButton("🎵 تحويل لـ MP3", callback_data=f"to_mp3|{os.path.basename(path)}")]]
+        # --- الأزرار تظهر هنا فقط عند نجاح التحميل ---
+        kb = [
+            [InlineKeyboardButton("🚀 مشاركة عبر البوت", switch_inline_query=f"@{context.bot.username}")],
+            [InlineKeyboardButton("🎵 استخراج الصوت MP3", callback_data=f"ya|{t_id}")]
+        ]
 
         with open(path, 'rb') as f:
-            await update.message.reply_video(video=f, caption=caption, reply_markup=InlineKeyboardMarkup(kb))
-        
+            await update.message.reply_video(
+                video=f, 
+                caption=f"🎬 يوتيوب جاهز\n📢 {CHANNEL_LINK}", 
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+
         await status.delete()
         if os.path.exists(path): os.remove(path)
-    except:
-        await status.edit_text("❌ فشل تحميل يوتيوب.")
+
+    except Exception as e:
+        print(f"YT DL Error: {e}")
+        # رسالة فشل بدون أزرار
+        await status.edit_text("❌ فشل تحميل فيديو يوتيوب. قد يكون الفيديو طويلاً جداً أو محمياً.")
 
 def setup(app):
+    # الفلتر الخاص بروابط يوتيوب فقط
     app.add_handler(MessageHandler(filters.Regex(r'youtube|youtu\.be'), yt_dl))
