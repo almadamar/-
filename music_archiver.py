@@ -1,79 +1,96 @@
-import os, yt_dlp, asyncio, requests
+import os, yt_dlp, asyncio, requests, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 BOT_TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
 
 async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text: return
     url = update.message.text
-    platforms = ["soundcloud", "spotify", "audiomack", "apple.com", "deezer", "anghami", "music.youtube"]
-    if any(p in url.lower() for p in platforms):
-        # أزرار معاينة قبل التحميل
+    # الكشف عن الروابط الموسيقية (بما فيها قوائم التشغيل)
+    if any(p in url.lower() for p in ["soundcloud", "spotify", "playlist", "album", "music.youtube"]):
         kb = [
-            [InlineKeyboardButton("📥 بدء الأرشفة في القناة", callback_data=f"arch_{url}")],
-            [InlineKeyboardButton("📢 زيارة القناة @Musiciqh", url="https://t.me/Musiciqh")]
+            [InlineKeyboardButton("🌀 أرشفة القائمة كاملة", callback_data=f"list_{url}")],
+            [InlineKeyboardButton("🎵 أرشفة أغنية واحدة فقط", callback_data=f"arch_{url}")],
+            [InlineKeyboardButton("📢 قناتنا @Musiciqh", url="https://t.me/Musiciqh")]
         ]
-        await update.message.reply_text("🎵 تم رصد رابط موسيقي. هل تود أرشفته الآن؟", reply_markup=InlineKeyboardMarkup(kb))
+        await update.message.reply_text(
+            "📋 **تم رصد رابط (أغنية/قائمة)..**\nإختر نوع الأرشفة التي تريدها:",
+            reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+        )
 
 async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    url = query.data.replace("arch_", "")
+    data = query.data
+    url = data.split("_", 1)[1]
+    is_playlist = data.startswith("list_")
     await query.answer()
-    
-    status = await query.edit_message_text("⚡ جاري المعالجة والنقل للقناة... يرجى الانتظار.")
 
-    def sync_process():
+    # واجهة تفاعلية تشعر المستخدم بالعمل في الخلفية
+    status_msg = await query.edit_message_text(
+        "⚙️ **جاري فحص الرابط...**\n🔄 العملية تجري في الخلفية، يرجى الانتظار قليلاً.",
+        parse_mode="Markdown"
+    )
+
+    def process_logic():
         try:
             tmp_dir = "/tmp"
-            output_file = os.path.join(tmp_dir, f"track_{query.from_user.id}")
-            
+            # إعدادات yt-dlp لدعم القوائم أو الأغاني الفردية
             ydl_opts = {
                 'format': 'bestaudio/best',
                 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '320'}],
-                'outtmpl': output_file + '.%(ext)s',
-                'quiet': True, 'noplaylist': True
+                'outtmpl': f'{tmp_dir}/%(title)s.%(ext)s',
+                'quiet': True,
+                'noplaylist': not is_playlist, # تفعيل أو تعطيل القوائم
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                title = info.get('title', 'Music Track')
-
-            final_path = output_file + ".mp3"
-            
-            if os.path.exists(final_path):
-                send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
-                # إضافة أزرار داخل القناة للعودة للبوت
-                channel_kb = {"inline_keyboard": [[{"text": "🤖 العودة للبوت المحمل", "url": "https://t.me/Down2024_bot"}]]}
+                info = ydl.extract_info(url, download=False)
                 
-                with open(final_path, 'rb') as audio:
-                    payload = {
-                        'chat_id': '@Musiciqh', 
-                        'caption': f"🎧 {title}\n✅ تم الحفظ بواسطة @Down2024_bot",
-                        'reply_markup': str(channel_kb).replace("'", '"')
-                    }
-                    files = {'audio': audio}
-                    response = requests.post(send_url, data=payload, files=files)
+                # إذا كانت قائمة، نمر على العناصر واحداً تلو الآخر
+                entries = info.get('entries', [info]) if is_playlist else [info]
+                total = len(entries)
                 
-                if os.path.exists(final_path): os.remove(final_path)
-                return response.status_code == 200, title
-            return False, "ملف التحميل مفقود"
+                count = 0
+                for entry in entries:
+                    count += 1
+                    # تحديث الحالة للمستخدم (تفاعلي) عبر خيط منفصل لضمان عدم التعليق
+                    title = entry.get('title', 'Unknown')
+                    
+                    # تحميل الملف الفعلي
+                    ydl.download([entry['webpage_url']])
+                    file_path = os.path.join(tmp_dir, f"{title}.mp3")
+                    
+                    if os.path.exists(file_path):
+                        # إرسال الملف للقناة مع زر العودة للبوت
+                        send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
+                        channel_kb = {"inline_keyboard": [[{"text": "🤖 العودة للبوت", "url": "https://t.me/Down2024_bot"}]]}
+                        
+                        with open(file_path, 'rb') as audio:
+                            payload = {
+                                'chat_id': '@Musiciqh', 
+                                'caption': f"🎧 {title}\n📦 من قائمة: {info.get('title', 'تحميل مباشر')}\n✅ عبر @Down2024_bot",
+                                'reply_markup': str(channel_kb).replace("'", '"')
+                            }
+                            requests.post(send_url, data=payload, files={'audio': audio})
+                        
+                        os.remove(file_path) # حذف الملف فوراً لتوفير المساحة
+                
+                return True, total
         except Exception as e:
             return False, str(e)
 
-    success, result = await asyncio.to_thread(sync_process)
+    # تشغيل المهمة في الخلفية
+    success, result = await asyncio.to_thread(process_logic)
     
     if success:
-        # أزرار تظهر للمستخدم في البوت بعد النجاح
-        success_kb = [
-            [InlineKeyboardButton("🎧 استماع في القناة", url="https://t.me/Musiciqh")],
-            [InlineKeyboardButton("🔄 تحميل أغنية أخرى", callback_data="new_search")]
-        ]
-        await status.edit_text(f"🏁 تمت الأرشفة بنجاح!\n🎵 العنوان: {result}", reply_markup=InlineKeyboardMarkup(success_kb))
+        await status_msg.edit_text(
+            f"✅ **اكتملت الأرشفة بنجاح!**\n📦 تم نقل `{result}` أغنية إلى القناة بنجاح.\n\nتفضل بزيارة @Musiciqh",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎧 اذهب للقناة", url="https://t.me/Musiciqh")]]),
+            parse_mode="Markdown"
+        )
     else:
-        # حل مشكلة رسالة الخطأ الوهمية عبر إظهار السبب الحقيقي
-        await status.edit_text(f"❌ تعذر الإكمال: {result}")
+        await status_msg.edit_text(f"❌ حدث خطأ أثناء المعالجة: {result}")
 
 def setup_music_module(application):
     application.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), on_link_received), group=2)
-    application.add_handler(CallbackQueryHandler(on_button_click, pattern="^arch_"), group=2)
+    application.add_handler(CallbackQueryHandler(on_button_click, pattern="^(arch_|list_)"), group=2)
