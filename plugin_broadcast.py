@@ -4,16 +4,16 @@ from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, 
 from config_data import OWNER_ID
 
 AWAITING_TEXT, CONFIRM_BROADCAST = range(2)
-USERS_FILE = "users.txt"
+DB_FILE = "users_data.txt"
 
 async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID: return ConversationHandler.END
-    await update.message.reply_text("📥 **الإذاعة المحلية**\n\nاكتب رسالتك:")
+    await update.message.reply_text("📥 **نظام الإذاعة**\n\nاكتب رسالتك:")
     return AWAITING_TEXT
 
 async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast_msg'] = update.message.text
-    kb = [[InlineKeyboardButton("✅ إرسال للجميع", callback_data="confirm_send")], [InlineKeyboardButton("❌ إلغاء", callback_data="cancel_send")]]
+    kb = [[InlineKeyboardButton("✅ إرسال", callback_data="confirm_send")], [InlineKeyboardButton("❌ إلغاء", callback_data="cancel_send")]]
     await update.message.reply_text(f"📝 معاينة:\n\n{update.message.text}", reply_markup=InlineKeyboardMarkup(kb))
     return CONFIRM_BROADCAST
 
@@ -25,23 +25,18 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     msg = context.user_data.get('broadcast_msg')
-    
-    if not os.path.exists(USERS_FILE):
-        await query.edit_message_text("⚠️ لا يوجد مشتركين بعد.")
-        return ConversationHandler.END
+    if not os.path.exists(DB_FILE): return ConversationHandler.END
 
-    with open(USERS_FILE, "r") as f:
-        all_users = f.read().splitlines()
-
-    await query.edit_message_text(f"🚀 جاري الإرسال لـ {len(all_users)} مشترك...")
-    
     sent, fail = 0, 0
-    for user_id in all_users:
-        try:
-            await context.bot.send_message(chat_id=int(user_id), text=msg)
-            sent += 1
-            await asyncio.sleep(0.05)
-        except: fail += 1
+    with open(DB_FILE, "r") as f:
+        for line in f:
+            if "|" in line:
+                uid = line.strip().split("|")[0]
+                try:
+                    await context.bot.send_message(chat_id=int(uid), text=msg)
+                    sent += 1
+                    await asyncio.sleep(0.05)
+                except: fail += 1
 
     await context.bot.send_message(chat_id=OWNER_ID, text=f"✅ اكتملت الإذاعة\n🟢 نجاح: {sent}\n🔴 فشل: {fail}")
     return ConversationHandler.END
