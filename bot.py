@@ -27,16 +27,17 @@ async def global_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def post_init(application):
     """تحميل الملحقات ديناميكياً عند بدء البوت"""
-    # قائمة الملحقات التي سيقوم البوت بتشغيلها
+    # تم إضافة 'plugin_search' إلى القائمة لتفعيل ميزة البحث الذكي
     plugins = [
-        'plugin_monitor',           # ملحق مراقبة التحركات (الجديد)
-        'plugin_pro',               # ملحق تحميل السوشيال ميديا
-        'plugin_youtube',           # ملحق تحميل يوتيوب
-        'plugin_extras',            # ملحق الأوامر ولوحة التحكم
-        'plugin_audio_standalone'    # ملحق استخراج الصوت المستقل
+        'plugin_monitor',           # مراقبة التحركات (تقارير كل 24 ساعة)
+        'plugin_search',            # المشروع الجديد: البحث في يوتيوب بالكلمات
+        'plugin_pro',               # تحميل السوشيال ميديا
+        'plugin_youtube',           # تحميل يوتيوب المباشر
+        'plugin_extras',            # الأوامر الإضافية
+        'plugin_audio_standalone'    # محول الصوت
     ]
     
-    print("--- 🚀 جاري تشغيل محرك البوت ---")
+    print("--- 🚀 جاري تشغيل محرك البوت المطور ---")
     for plugin in plugins:
         try:
             module = importlib.import_module(plugin)
@@ -46,13 +47,13 @@ async def post_init(application):
             print(f"❌ خطأ في تحميل الملحق {plugin}: {e}")
 
 if __name__ == '__main__':
-    # بناء تطبيق البوت
+    # بناء تطبيق البوت مع خاصية التوقيت (JobQueue) للتقارير اليومية
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
 
     # إضافة متعقب المستخدمين في مجموعة خلفية (Group -1)
     app.add_handler(MessageHandler(filters.ALL, global_tracker), group=-1)
 
-    print("--- ✨ البوت يعمل الآن بنظام المراقبة والتحميل ---")
+    print("--- ✨ البوت يعمل الآن بنظام البحث، المراقبة والتحميل ---")
     
-    # بدء استقبال الرسائل وتجاهل التحديثات القديمة أثناء التوقف
+    # بدء استقبال الرسائل وتجاهل التحديثات القديمة
     app.run_polling(drop_pending_updates=True)
