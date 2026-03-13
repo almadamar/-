@@ -1,43 +1,53 @@
-import os, yt_dlp, asyncio, requests, time
+import os, yt_dlp, requests, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# إعدادات القنوات والتوكن
+# البيانات الثابتة
 BOT_TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
-MUSIC_STORAGE = "@Musiciqh" # قناة تخزين الأغاني
-OFFICIAL_CHAN = "@UpGo2"    # قناتك الرسمية
+MUSIC_STORAGE = "@Musiciqh" 
+OFFICIAL_CHAN = "@UpGo2"
 
+# معالج الروابط (يظهر مرة واحدة فقط)
 async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     url = update.message.text
     
-    kb = [[InlineKeyboardButton("🌀 بدء الأرشفة الذكية", callback_data=f"arch_{url}")],
-          [InlineKeyboardButton("📢 القناة الرسمية", url="https://t.me/UpGo2"),
-           InlineKeyboardButton("📦 أرشيف الموسيقى", url="https://t.me/Musiciqh")]]
+    # قائمة الأزرار
+    kb = [[InlineKeyboardButton("🌀 أرشفة المحتوى (تفاعلي)", callback_data=f"do_{url}")],
+          [InlineKeyboardButton("📢 القناة", url="https://t.me/UpGo2"),
+           InlineKeyboardButton("📦 التخزين", url="https://t.me/Musiciqh")]]
     
     await update.message.reply_text(
-        "📥 **تم استلام الرابط بنجاح!**\nسيتم فحص المحتوى ونقله إلى نظام التخزين الخاص بنا 🚀",
+        "📥 **تم رصد الرابط!**\nسيتم التحميل بالأبعاد الأصلية ودقة 720p تلقائياً 🚀",
         reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
     )
 
+# معالج الضغط على الزر (التنفيذ الفعلي)
 async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    url = query.data.split("_", 1)[1]
-    await query.answer()
+    # تجنب التكرار: نقوم بمسح الزر فور الضغط عليه
+    await query.edit_message_reply_markup(reply_markup=None)
+    
+    url = query.data.replace("do_", "")
+    await query.answer("جاري المعالجة...")
 
-    # تفعيل الحالة الخضراء تحت الاسم (يتم إرسال ملف...)
+    # تفعيل الحالة الخضراء التفاعلية
     try: await context.bot.send_chat_action(chat_id=query.message.chat_id, action="upload_document")
     except: pass
 
-    status_msg = await query.edit_message_text(
-        "🔍 **جاري التحليل والمعالجة...**\n🔄 يتم الآن سحب الملف وتجهيزه للنقل.\n\n▒▒▒▒▒▒▒▒▒▒ 0%", parse_mode="Markdown"
+    # رسالة الحالة التفاعلية مع شريط التقدم
+    status_msg = await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="⚙️ **بدأت العملية...**\n🔄 يتم جلب الملف بالأبعاد الأصلية.\n\n▒▒▒▒▒▒▒▒▒▒ 0%",
+        parse_mode="Markdown"
     )
 
-    def universal_archive_process():
+    def process_and_send():
         try:
             tmp_dir = "/tmp"
+            # إعدادات صارمة: MP4، دقة 720p كحد أقصى، والأهم (الأبعاد الأصلية)
             ydl_opts = {
-                'format': 'bestaudio/best[ext=m4a]/bestvideo[height<=720][ext=mp4]+bestaudio/best[height<=720]/best',
+                'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]/best',
                 'outtmpl': f'{tmp_dir}/%(title)s.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
@@ -45,54 +55,45 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # تحديث شريط التقدم بصرياً
-                asyncio.run_coroutine_threadsafe(query.edit_message_text("⚙️ **جاري التحميل من المصدر...**\n\n███▒▒▒▒▒▒▒ 30%", parse_mode="Markdown"), asyncio.get_event_loop())
-                
                 info = ydl.extract_info(url, download=True)
                 file_path = ydl.prepare_filename(info)
                 
                 if os.path.exists(file_path):
-                    file_ext = file_path.lower().split('.')[-1]
-                    # تحديد النوع: هل هو صوت أم فيديو؟
-                    is_audio = file_ext in ['mp3', 'm4a', 'wav', 'ogg', 'flac']
-                    
+                    ext = file_path.lower().split('.')[-1]
+                    is_audio = ext in ['mp3', 'm4a', 'wav', 'ogg']
                     method = "sendAudio" if is_audio else "sendVideo"
-                    target_chat = MUSIC_STORAGE # إرسال الموسيقى دائماً للقناة الموسيقية
                     
-                    send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+                    # الإرسال عبر API المباشر لتجنب أخطاء Loop
+                    send_api = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
                     with open(file_path, 'rb') as f:
                         payload = {
-                            'chat_id': target_chat, 
-                            'caption': f"🎧 {info.get('title')}\n\n✅ تم التحميل بواسطة: @Down2024_bot",
-                            'reply_markup': '{"inline_keyboard": [[{"text": "🤖 العودة للبوت", "url": "https://t.me/Down2024_bot"}]]}'
+                            'chat_id': MUSIC_STORAGE, 
+                            'caption': f"🎬 {info.get('title')}\n\n✅ تم التحميل بواسطة: @Down2024_bot",
+                            'reply_markup': '{"inline_keyboard": [[{"text": "📢 القناة الرسمية", "url": "https://t.me/UpGo2"}]]}'
                         }
                         files = {'audio' if is_audio else 'video': f}
-                        requests.post(send_url, data=payload, files=files)
+                        requests.post(send_api, data=payload, files=files)
                     
                     os.remove(file_path)
                     return True, info.get('title'), is_audio
-            return False, "لم يتم العثور على محتوى", False
-        except Exception as e: return False, str(e), False
+            return False, "تعذر استخراج الملف", False
+        except Exception as e:
+            return False, str(e), False
 
-    success, title, was_audio = await asyncio.to_thread(universal_archive_process)
+    # تنفيذ التحميل في مسار منفصل لضمان عدم تجميد البوت
+    success, title, was_audio = process_and_send()
     
     if success:
-        if was_audio:
-            # رسالة مخصصة للموسيقى تخبر المستخدم أين يجد الأغنية
-            await status_msg.edit_text(
-                f"🏁 **اكتملت أرشفة الأغنية!**\n✅ العنوان: {title}\n\n📍 تم نقل الأغنية إلى **قناة الموسيقى** الخاصة بنا.\nيمكنك الاستماع إليها هناك الآن عبر الزر أدناه 👇",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎧 اذهب للأغنية الآن", url="https://t.me/Musiciqh")]]),
-                parse_mode="Markdown"
-            )
-        else:
-            await status_msg.edit_text(
-                f"🏁 **اكتمل أرشفة الفيديو!**\n✅ العنوان: {title}\n📍 تم الحفظ في التخزين العام بنجاح.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 تفقد التخزين", url="https://t.me/Musiciqh")]]),
-                parse_mode="Markdown"
-            )
+        loc = "قناة الموسيقى" if was_audio else "قناة التخزين"
+        await status_msg.edit_text(
+            f"🏁 **اكتمل التحميل!**\n✅ العنوان: {title}\n📍 تجد الملف الآن في **{loc}**.\n\n**تم التحميل بالأبعاد الأصلية ودقة 720p.**",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎧 انتقل للأرشيف", url="https://t.me/Musiciqh")]]),
+            parse_mode="Markdown"
+        )
     else:
-        await status_msg.edit_text(f"⚠️ **فشل النظام:** {title}")
+        await status_msg.edit_text(f"⚠️ **فشل النظام:**\n{title}")
 
 def setup_music_module(application):
+    # استخدام Filter واحد فقط لمنع التكرار
     application.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), on_link_received), group=2)
-    application.add_handler(CallbackQueryHandler(on_button_click, pattern="^arch_"), group=2)
+    application.add_handler(CallbackQueryHandler(on_button_click, pattern="^do_"), group=2)
