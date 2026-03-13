@@ -1,5 +1,5 @@
 import os, importlib, asyncio, datetime, logging
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from config_data import TOKEN, DOWNLOAD_DIR
 
@@ -16,16 +16,33 @@ if not os.path.exists(DOWNLOAD_DIR):
 DB_FILE = "users_data.txt"
 
 # --- 2. صائد الأخطاء الشامل (Error Handler) ---
-# هذه الدالة ستحل مشكلة "No error handlers are registered"
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(msg="❌ حدث خطأ فني أثناء المعالجة:", exc_info=context.error)
-    # إذا كان هناك تحديث، نحاول إبلاغ المستخدم بوجود مشكلة تقنية
     if isinstance(update, Update) and update.effective_message:
         try:
             await update.effective_message.reply_text("⚠️ عذراً، واجهت مشكلة تقنية أثناء معالجة طلبك. تم تسجيل الخطأ للمراجعة.")
         except: pass
 
-# --- 3. أداة تشخيص استقبال الروابط ---
+# --- 3. دالة التوجيه الذكي للمجموعات (الميزة الجديدة) ---
+async def redirect_to_archiver(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # تعمل فقط في المجموعات لتوجيه المستخدم لبوت الأرشفة المختص
+    if update.effective_chat.type in ['group', 'supergroup'] and update.message and update.message.text:
+        url = update.message.text.lower()
+        # المنصات التي نريد تحويلها للبوت الثاني
+        target_sites = ["soundcloud.com", "pinterest.com", "pin.it", "snapchat.com", ".mp3"]
+        
+        if any(site in url for site in target_sites):
+            user_name = update.effective_user.first_name if update.effective_user else "يا صديقي"
+            text = (
+                f"👋 أهلاً {user_name}!\n\n"
+                f"لقد رصدت رابطاً (صوتيات/أرشفة)..\n"
+                f"هذه الروابط يتم تحميلها وتغيير حقوقها حصراً عبر بوت الأرشفة الخاص بنا 📥✨"
+            )
+            # زر التحويل للبوت الثاني @AutoMusicHubBot
+            keyboard = [[InlineKeyboardButton("🚀 اذهب إلى بوت الأرشفة", url="https://t.me/AutoMusicHubBot")]]
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# --- 4. أداة تشخيص استقبال الروابط ---
 async def diagnostic_tool(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text:
         text = update.message.text
@@ -34,7 +51,7 @@ async def diagnostic_tool(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"🔗 [رادار]: استلمت رابطاً من {user} -> {text}")
     return
 
-# --- 4. تسجيل نشاط المستخدمين (الخاص بك) ---
+# --- 5. تسجيل نشاط المستخدمين ونظام التذكير ---
 async def global_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id if update.effective_user else (update.callback_query.from_user.id if update.callback_query else None)
     if user_id:
@@ -48,7 +65,6 @@ async def global_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(DB_FILE, "w") as f:
             for uid, d in data.items(): f.write(f"{uid}|{d}\n")
 
-# --- 5. نظام التذكير (الخاص بك) ---
 async def reminder_task(context: ContextTypes.DEFAULT_TYPE):
     if not os.path.exists(DB_FILE): return
     now = datetime.datetime.now()
@@ -63,10 +79,9 @@ async def reminder_task(context: ContextTypes.DEFAULT_TYPE):
 
 # --- 6. دالة بدء التشغيل ودمج الملحقات ---
 async def post_init(application):
-    # تشغيل التذكير كل يوم
     application.job_queue.run_repeating(reminder_task, interval=86400, first=10)
     
-    # تحميل ملحقات البوت القديم
+    # تحميل ملحقات البوت القديم (انستا، تيك توك، فيس، يوتيوب، الخ)
     plugins = ['plugin_monitor', 'plugin_broadcast', 'plugin_search', 'plugin_pro', 'plugin_youtube', 'plugin_extras']
     for p in plugins:
         try:
@@ -86,16 +101,20 @@ async def post_init(application):
 
 # --- 7. نقطة الانطلاق الأساسية ---
 if __name__ == '__main__':
-    # بناء البوت باستخدام التوكن
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # إضافة صائد الأخطاء
     app.add_error_handler(error_handler)
     
-    # إضافة المجموعات (Groups) بالترتيب الصحيح
+    # المجموعة 0: دالة التوجيه للمجموعات (تعمل أولاً للروابط المحددة)
+    app.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), redirect_to_archiver), group=0)
+    
+    # المجموعة -2: التشخيص
     app.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), diagnostic_tool), group=-2)
+    
+    # المجموعة -1: تتبع المستخدمين
     app.add_handler(MessageHandler(filters.ALL, global_tracker), group=-1)
     app.add_handler(CallbackQueryHandler(global_tracker), group=-1)
     
-    logger.info("⚡ البوت المدمج انطلق بنجاح.. راقب الـ Logs الآن.")
+    logger.info("⚡ البوت المدمج انطلق بنجاح مع نظام التوجيه الذكي..")
     app.run_polling(drop_pending_updates=True)
