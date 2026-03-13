@@ -5,12 +5,10 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from config_data import TOKEN, DOWNLOAD_DIR
 
-# التأكد من وجود مجلد التحميلات عند بدء التشغيل
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
 def register_user(user_id):
-    """تسجيل المستخدمين الجدد في قاعدة بيانات نصية"""
     db_file = "users.txt"
     if not os.path.exists(db_file):
         open(db_file, 'w').close()
@@ -21,39 +19,36 @@ def register_user(user_id):
             f.write(f"{user_id}\n")
 
 async def global_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تتبع المستخدمين وحفظ بياناتهم"""
     if update.effective_user:
         register_user(update.effective_user.id)
 
 async def post_init(application):
-    """تحميل الملحقات ديناميكياً عند بدء البوت"""
-    # تم إضافة 'plugin_search' إلى القائمة لتفعيل ميزة البحث الذكي
+    # قائمة الملحقات الشاملة
     plugins = [
-        'plugin_monitor',           # مراقبة التحركات (تقارير كل 24 ساعة)
-        'plugin_search',            # المشروع الجديد: البحث في يوتيوب بالكلمات
-        'plugin_pro',               # تحميل السوشيال ميديا
-        'plugin_youtube',           # تحميل يوتيوب المباشر
-        'plugin_extras',            # الأوامر الإضافية
-        'plugin_audio_standalone'    # محول الصوت
+        'plugin_monitor',      # 1. المراقبة والتقارير
+        'plugin_broadcast',    # 2. الإذاعة الذكية (الجديد)
+        'plugin_search',       # 3. البحث في يوتيوب
+        'plugin_pro',          # 4. تحميل السوشيال ميديا
+        'plugin_youtube',      # 5. تحميل يوتيوب مباشر
+        'plugin_extras',       # 6. الأوامر الإضافية
+        'plugin_audio_standalone' # 7. محول الصوت
     ]
     
-    print("--- 🚀 جاري تشغيل محرك البوت المطور ---")
+    print("--- 🚀 جاري تشغيل النسخة الاحترافية ---")
     for plugin in plugins:
         try:
             module = importlib.import_module(plugin)
             module.setup(application)
-            print(f"✅ تم تفعيل الملحق: {plugin}")
+            print(f"✅ تفعيل: {plugin}")
         except Exception as e:
-            print(f"❌ خطأ في تحميل الملحق {plugin}: {e}")
+            print(f"❌ خطأ في {plugin}: {e}")
 
 if __name__ == '__main__':
-    # بناء تطبيق البوت مع خاصية التوقيت (JobQueue) للتقارير اليومية
+    # بناء البوت مع JobQueue (ضروري لتقرير الـ 24 ساعة)
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
 
-    # إضافة متعقب المستخدمين في مجموعة خلفية (Group -1)
+    # تتبع كافة المستخدمين (Group -1)
     app.add_handler(MessageHandler(filters.ALL, global_tracker), group=-1)
 
-    print("--- ✨ البوت يعمل الآن بنظام البحث، المراقبة والتحميل ---")
-    
-    # بدء استقبال الرسائل وتجاهل التحديثات القديمة
+    print("--- ✨ البوت جاهز للعمل بكامل المزايا ---")
     app.run_polling(drop_pending_updates=True)
