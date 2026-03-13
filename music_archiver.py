@@ -1,12 +1,13 @@
-import os, yt_dlp, asyncio, logging
+import os, yt_dlp, asyncio, logging, glob
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, COMM
-from config_data import DOWNLOAD_DIR # استيراد المجلد فقط
+from config_data import DOWNLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
+# إعدادات ثابتة وقوية
 SONG_OPTS = {
     'format': 'bestaudio/best',
     'noplaylist': True,
@@ -16,8 +17,8 @@ SONG_OPTS = {
         'preferredcodec': 'mp3',
         'preferredquality': '320'
     }],
-    # استخدام اسم بسيط للملف لتجنب مشاكل الرموز
-    'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s', 
+    # نستخدم قالب بسيط جداً لضمان عدم ضياع المسار
+    'outtmpl': f'{DOWNLOAD_DIR}/track_%(id)s.%(ext)s',
     'quiet': True,
     'no_warnings': True,
 }
@@ -37,9 +38,8 @@ def apply_rights(file_path, title):
 async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     url = update.message.text
-    music_platforms = ["soundcloud.com", "spotify.com", "apple.com", "deezer.com", "audiomack.com", "anghami.com", "music.youtube", "pin.it", "pinterest.com"]
-    
-    if any(p in url.lower() for p in music_platforms):
+    # قائمة منصات الموسيقى
+    if any(p in url.lower() for p in ["soundcloud.com", "spotify", "apple.com", "deezer", "audiomack", "anghami", "music.youtube"]):
         kb = [[InlineKeyboardButton("🎵 أرشفة في @Musiciqh", callback_data=f"arch_{url}")]]
         await update.message.reply_text("📥 تم رصد رابط موسيقي.. جاهز للأرشفة؟", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -47,43 +47,51 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     url = query.data.replace("arch_", "")
     await query.answer()
-    status = await query.edit_message_text("⏳ جاري التحميل والمعالجة...")
+    status = await query.edit_message_text("⏳ جاري المعالجة النهائية وإرسال الملف...")
 
-    def process():
+    def process_and_find():
         try:
             if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
+            
+            # 1. التحميل
             with yt_dlp.YoutubeDL(SONG_OPTS) as ydl:
                 info = ydl.extract_info(url, download=True)
                 if 'entries' in info: info = info['entries'][0]
+                video_id = info.get('id')
                 title = info.get('title', 'Music_File')
-                # المسار باستخدام ID الفيديو لضمان عدم ضياع الملف
-                path = os.path.join(DOWNLOAD_DIR, f"{info['id']}.mp3")
-                if os.path.exists(path):
-                    apply_rights(path, title)
-                    return True, path, title
-                return False, "الملف لم يتم العثور عليه بعد التحويل", None
+
+            # 2. البحث عن الملف الفعلي (أكثر طريقة مضمونة)
+            # نبحث عن أي ملف في المجلد يحتوي على ID الفيديو وينتهي بـ mp3
+            search_pattern = os.path.join(DOWNLOAD_DIR, f"*track_{video_id}*.mp3")
+            found_files = glob.glob(search_pattern)
+
+            if found_files:
+                actual_path = found_files[0]
+                apply_rights(actual_path, title)
+                return True, actual_path, title
+            
+            return False, "تعذر تحديد مكان الملف بعد التحميل", None
         except Exception as e:
             return False, str(e), None
 
-    success, result, title = await asyncio.to_thread(process)
+    success, result, title = await asyncio.to_thread(process_and_find)
 
     if success:
         try:
             with open(result, 'rb') as f:
-                # محاولة الإرسال باستخدام المعرف النصي مباشرة
                 await context.bot.send_audio(
                     chat_id="@Musiciqh", 
                     audio=f, 
                     caption=f"🎧 {title}\n✅ تمت الأرشفة في @Musiciqh"
                 )
-            await status.edit_text("🏁 تم الإرسال بنجاح إلى @Musiciqh")
+            await status.edit_text("🏁 تم الإرسال بنجاح إلى القناة!")
         except Exception as e:
-            logger.error(f"❌ فشل الإرسال: {e}")
-            await status.edit_text(f"❌ تم التحميل ولكن فشل الإرسال للقناة.\nالسبب: {e}")
+            await status.edit_text(f"❌ خطأ في الإرسال: {e}")
         
+        # تنظيف المجلد
         if os.path.exists(result): os.remove(result)
     else:
-        await status.edit_text(f"❌ فشل التحميل: {result}")
+        await status.edit_text(f"❌ فشل: {result}")
 
 def setup_music_module(application):
     application.add_handler(MessageHandler(filters.TEXT & filters.Entity("url"), on_link_received), group=2)
