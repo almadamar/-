@@ -1,37 +1,38 @@
-import os, yt_dlp, requests
+import os, yt_dlp, requests, json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
+# البيانات الثابتة
 BOT_TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
 MUSIC_STORAGE = "@Musiciqh" 
-OFFICIAL_CHAN = "@UpGo2"
+SPECIAL_LINK = "https://t.me/+nBVM5qNb2uphMzUy" # الرابط المطلوب
 
 async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     url = update.message.text
     
-    # رسالة فحص صامتة لمعرفة نوع المحتوى
-    loading_msg = await update.message.reply_text("🔍 جاري فحص الرابط...")
-
     try:
         with yt_dlp.YoutubeDL({'quiet': True, 'noplaylist': True}) as ydl:
             info = ydl.extract_info(url, download=False)
-            # تحديد هل الرابط صوتي أصلي (مثل ساوند كلاود)
             is_audio = info.get('extractor') in ['soundcloud', 'audiomack'] or 'audio' in info.get('format', '').lower()
 
         if is_audio:
-            # خيار الأرشفة للصوت فقط (يذهب للقناة)
+            # خيار الصوتيات: يذهب للأرشيف
             kb = [[InlineKeyboardButton("🎵 أرشفة الأغنية للموسيقى", callback_data=f"aud_{url}")]]
             text = "🎶 **رابط صوتي مكتشف!**\nسيتم نقل الأغنية إلى أرشيف القناة العام."
         else:
-            # خيار التحميل المباشر للفيديو (يبقى في البوت)
-            kb = [[InlineKeyboardButton("🎬 تحميل الفيديو الآن", callback_data=f"vid_{url}")]]
-            text = "🎬 **رابط فيديو مكتشف!**\nسيتم إرسال الفيديو لك هنا مباشرة بالأبعاد الأصلية."
+            # خيار الفيديوهات: يظهر مع الرابط الخاص وأزرار التحكم
+            kb = [
+                [InlineKeyboardButton("🎬 تحميل الفيديو الآن", callback_data=f"vid_{url}")],
+                [InlineKeyboardButton("✨ انضم للقناة (رابط خاص)", url=SPECIAL_LINK)],
+                [InlineKeyboardButton("🚀 مشاركة البوت", switch_inline_query="جرب هذا البوت الرهيب للتحميل!")]
+            ]
+            text = "🎬 **تم رصد الفيديو!**\nيمكنك التحميل الآن أو الانضمام لقناتنا الخاصة 👇"
 
-        await loading_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
     except Exception:
-        await loading_msg.edit_text("⚠️ عذراً، لم أستطع تحديد نوع المحتوى.")
+        pass
 
 async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -42,24 +43,23 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_reply_markup(reply_markup=None) 
     
-    # تفعيل الحالة التفاعلية (يتم إرسال فيديو / صوت)
-    action = "upload_audio" if is_audio_task else "upload_video"
-    try: await context.bot.send_chat_action(chat_id=chat_id, action=action)
+    try: await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
     except: pass
 
     status_msg = await context.bot.send_message(
         chat_id=chat_id,
-        text=f"⚙️ جاري التجهيز {'للأرشفة' if is_audio_task else 'للتحميل المباشر'}...\n\n▒▒▒▒▒▒▒▒▒▒ 0%",
+        text=f"⚙️ جاري {'الأرشفة' if is_audio_task else 'التحميل المباشر'}...",
         parse_mode="Markdown"
     )
 
-    def process_and_send():
+    def download_and_dispatch():
         try:
             tmp_dir = "/tmp"
             opts = {
                 'format': 'bestaudio/best' if is_audio_task else 'bestvideo[height<=720][ext=mp4]+bestaudio/best[height<=720]/best',
                 'outtmpl': f'{tmp_dir}/%(title)s.%(ext)s',
                 'quiet': True,
+                'no_warnings': True,
                 'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'},
             }
 
@@ -68,28 +68,39 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_path = ydl.prepare_filename(info)
                 
                 if os.path.exists(file_path):
-                    # الفرق الجوهري هنا:
-                    # إذا كان صوتاً: يذهب لـ MUSIC_STORAGE
-                    # إذا كان فيديو: يذهب لـ chat_id (المستخدم)
                     target = MUSIC_STORAGE if is_audio_task else chat_id
                     method = "sendAudio" if is_audio_task else "sendVideo"
                     
+                    # الأزرار التي ستظهر تحت الملف (الفيديو أو الصوت) بعد التحميل
+                    reply_markup = {
+                        "inline_keyboard": [
+                            [{"text": "✨ القناة الخاصة", "url": SPECIAL_LINK}],
+                            [{"text": "🚀 مشاركة البوت", "url": "https://t.me/share/url?url=https://t.me/Down2024_bot"}]
+                        ]
+                    }
+                    
                     send_api = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
                     with open(file_path, 'rb') as f:
-                        requests.post(send_api, data={'chat_id': target, 'caption': f"✅ تم بواسطة: @Down2024_bot"}, files={('audio' if is_audio_task else 'video'): f})
+                        payload = {
+                            'chat_id': target, 
+                            'caption': f"✅ تم بواسطة: @Down2024_bot",
+                            'reply_markup': json.dumps(reply_markup)
+                        }
+                        files = {('audio' if is_audio_task else 'video'): f}
+                        requests.post(send_api, data=payload, files=files)
                     
                     os.remove(file_path)
                     return True, info.get('title')
             return False, "فشل الاستخراج"
         except Exception as e: return False, str(e)
 
-    success, title = process_and_send()
+    success, title = download_and_dispatch()
     if success:
         if is_audio_task:
-            await status_msg.edit_text(f"🏁 **تمت الأرشفة!**\nنقلت الأغنية `{title}` إلى قناة الموسيقى بنجاح.",
+            await status_msg.edit_text(f"🏁 **تمت الأرشفة!**\nنقلت `{title}` للقناة.",
                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎧 قناة الموسيقى", url="https://t.me/Musiciqh")]]))
         else:
-            await status_msg.delete() # حذف رسالة الحالة وإرسال الفيديو تم بالفعل للمستخدم
+            await status_msg.delete() 
     else:
         await status_msg.edit_text(f"⚠️ خطأ: {title}")
 
