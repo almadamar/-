@@ -5,7 +5,7 @@ from telegram.ext import MessageHandler, filters, ContextTypes, CallbackQueryHan
 # البيانات الثابتة
 BOT_TOKEN = "6099646606:AAHu-znvZ9bawGNl4autKn3YcMXSrxz4NzI"
 MUSIC_STORAGE = "@Musiciqh" 
-SPECIAL_LINK = "https://t.me/+nBVM5qNb2uphMzUy" # الرابط المطلوب
+SPECIAL_LINK = "https://t.me/+nBVM5qNb2uphMzUy"
 
 async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
@@ -17,19 +17,19 @@ async def on_link_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_audio = info.get('extractor') in ['soundcloud', 'audiomack'] or 'audio' in info.get('format', '').lower()
 
         if is_audio:
-            # خيار الصوتيات: يذهب للأرشيف
+            # خيار الصوتيات: تظهر الرسالة مع زر الأرشفة
             kb = [[InlineKeyboardButton("🎵 أرشفة الأغنية للموسيقى", callback_data=f"aud_{url}")]]
             text = "🎶 **رابط صوتي مكتشف!**\nسيتم نقل الأغنية إلى أرشيف القناة العام."
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
         else:
-            # خيار الفيديوهات: يظهر مع الرابط الخاص وأزرار التحكم
+            # خيار الفيديوهات: تظهر الأزرار مباشرة بدون رسالة "تم رصد الفيديو"
             kb = [
                 [InlineKeyboardButton("🎬 تحميل الفيديو الآن", callback_data=f"vid_{url}")],
                 [InlineKeyboardButton("✨ انضم للقناة (رابط خاص)", url=SPECIAL_LINK)],
                 [InlineKeyboardButton("🚀 مشاركة البوت", switch_inline_query="جرب هذا البوت الرهيب للتحميل!")]
             ]
-            text = "🎬 **تم رصد الفيديو!**\nيمكنك التحميل الآن أو الانضمام لقناتنا الخاصة 👇"
-
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+            # إرسال الأزرار فقط مع نص بسيط أو فارغ حسب رغبتك (هنا وضعنا نقطة للجمالية)
+            await update.message.reply_text("👇 اختر الإجراء المطلوب للفيديو:", reply_markup=InlineKeyboardMarkup(kb))
 
     except Exception:
         pass
@@ -56,7 +56,7 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             tmp_dir = "/tmp"
             opts = {
-                'format': 'bestaudio/best' if is_audio_task else 'bestvideo[height<=720][ext=mp4]+bestaudio/best[height<=720]/best',
+                'format': 'bestvideo[height<=720][ext=mp4]+bestaudio/best[height<=720]/best' if not is_audio_task else 'bestaudio/best',
                 'outtmpl': f'{tmp_dir}/%(title)s.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
@@ -71,7 +71,7 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     target = MUSIC_STORAGE if is_audio_task else chat_id
                     method = "sendAudio" if is_audio_task else "sendVideo"
                     
-                    # الأزرار التي ستظهر تحت الملف (الفيديو أو الصوت) بعد التحميل
+                    # حذف رابط القناة من الـ caption والاكتفاء بالأزرار في الأسفل
                     reply_markup = {
                         "inline_keyboard": [
                             [{"text": "✨ القناة الخاصة", "url": SPECIAL_LINK}],
@@ -83,7 +83,7 @@ async def on_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     with open(file_path, 'rb') as f:
                         payload = {
                             'chat_id': target, 
-                            'caption': f"✅ تم بواسطة: @Down2024_bot",
+                            'caption': f"✅ تم بواسطة: @Down2024_bot", # تم حذف رابط القناة من هنا
                             'reply_markup': json.dumps(reply_markup)
                         }
                         files = {('audio' if is_audio_task else 'video'): f}
